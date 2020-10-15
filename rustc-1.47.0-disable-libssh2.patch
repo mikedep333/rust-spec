@@ -1,0 +1,42 @@
+--- rustc-1.47.0-src/Cargo.lock.orig	2020-10-07 00:53:22.000000000 -0700
++++ rustc-1.47.0-src/Cargo.lock	2020-10-08 12:15:07.361298619 -0700
+@@ -1636,7 +1636,6 @@
+ dependencies = [
+  "cc",
+  "libc",
+- "libssh2-sys",
+  "libz-sys",
+  "openssl-sys",
+  "pkg-config",
+@@ -1653,20 +1652,6 @@
+ ]
+ 
+ [[package]]
+-name = "libssh2-sys"
+-version = "0.2.18"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "eafa907407504b0e683786d4aba47acf250f114d37357d56608333fd167dd0fc"
+-dependencies = [
+- "cc",
+- "libc",
+- "libz-sys",
+- "openssl-sys",
+- "pkg-config",
+- "vcpkg",
+-]
+-
+-[[package]]
+ name = "libz-sys"
+ version = "1.0.27"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+--- rustc-1.47.0-src/vendor/git2/Cargo.toml.orig	2020-10-07 02:33:31.000000000 -0700
++++ rustc-1.47.0-src/vendor/git2/Cargo.toml	2020-10-08 12:13:37.697228272 -0700
+@@ -49,7 +49,7 @@
+ version = "0.1.39"
+ 
+ [features]
+-default = ["ssh", "https", "ssh_key_from_memory"]
++default = ["https"]
+ https = ["libgit2-sys/https", "openssl-sys", "openssl-probe"]
+ ssh = ["libgit2-sys/ssh"]
+ ssh_key_from_memory = ["libgit2-sys/ssh_key_from_memory"]
