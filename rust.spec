@@ -16,6 +16,7 @@
 
 # Only the specified arches will use bootstrap binaries.
 #global bootstrap_arches %%{rust_arches}
+%global bootstrap_arches x86_64 i686 aarch64 ppc64le s390x
 
 # Using llvm-static may be helpful as an opt-in, e.g. to aid LLVM rebases.
 %bcond_with llvm_static
@@ -53,7 +54,7 @@
 
 Name:           rust
 Version:        1.49.0
-Release:        2%{?dist}
+Release:        3%{?dist}
 Summary:        The Rust Programming Language
 License:        (ASL 2.0 or MIT) and (BSD and MIT)
 # ^ written as: (rust itself) and (bundled libraries)
@@ -720,6 +721,9 @@ export %{rust_env}
 
 
 %changelog
+* Thu Feb 11 2021 Josh Stone <jistone@redhat.com> - 1.49.0-3
+- Re-bootstrap due to removed LLVM targets
+
 * Wed Jan 27 2021 Fedora Release Engineering <releng@fedoraproject.org> - 1.49.0-2
 - Rebuilt for https://fedoraproject.org/wiki/Fedora_34_Mass_Rebuild
 
