@@ -53,7 +53,7 @@
 
 Name:           rust
 Version:        1.49.0
-Release:        4%{?dist}
+Release:        5%{?dist}
 Summary:        The Rust Programming Language
 License:        (ASL 2.0 or MIT) and (BSD and MIT)
 # ^ written as: (rust itself) and (bundled libraries)
@@ -720,6 +720,9 @@ export %{rust_env}
 
 
 %changelog
+* Fri Apr 16 2021 Mohan Boddu <mboddu@redhat.com> - 1.49.0-5
+- Rebuilt for RHEL 9 BETA on Apr 15th 2021. Related: rhbz#1947937
+
 * Fri Feb 12 2021 Josh Stone <jistone@redhat.com> - 1.49.0-4
 - Rebuild without bootstrap binaries
 
