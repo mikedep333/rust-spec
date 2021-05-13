@@ -84,6 +84,13 @@ Patch101:       rustc-1.51.0-disable-http2.patch
 # (affects RHEL6 kernels when building for RHEL7)
 Patch102:       rustc-1.51.0-no-default-pie.patch
 
+# Initial support for OpenSSL 3.0.0-alpha15
+# https://github.com/sfackler/rust-openssl/pull/1264
+%global rust_openssl_commit cc1c74c1a313ac46b5fa3da602a46cff6fdd06a2
+%global rust_openssl rust-openssl-%{rust_openssl_commit}
+Source103:      https://github.com/sfackler/rust-openssl/archive/%{rust_openssl_commit}/%{rust_openssl}.tar.gz
+Patch103:       rust-openssl-300.patch
+
 
 # Get the Rust triple for any arch.
 %{lua: function rust_triple(arch)
@@ -442,6 +449,10 @@ rm -rf vendor/libgit2-sys/libgit2/
 rm -rf vendor/libssh2-sys/
 %endif
 
+rm -rf vendor/openssl{,-sys}/*
+tar -xf %{SOURCE103} -C vendor/ --strip-components=1 %{rust_openssl}/openssl{,-sys}/
+%patch103 -p1
+
 # This only affects the transient rust-installer, but let it use our dynamic xz-libs
 sed -i.lzma -e '/LZMA_API_STATIC/d' src/bootstrap/tool.rs
 
@@ -735,6 +746,7 @@ export %{rust_env}
 * Thu May 13 2021 Josh Stone <jistone@redhat.com> - 1.52.1-1
 - Update to 1.52.1. Includes security fixes for CVE-2020-36323,
   CVE-2021-28876, CVE-2021-28878, CVE-2021-28879, and CVE-2021-31162.
+- Initial support for OpenSSL 3.0.0-alpha15
 
 * Wed Apr 28 2021 Josh Stone <jistone@redhat.com> - 1.51.0-1
 - Update to 1.51.0. Includes security fixes for CVE-2021-28875
