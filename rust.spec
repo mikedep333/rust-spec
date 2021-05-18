@@ -53,7 +53,7 @@
 
 Name:           rust
 Version:        1.52.1
-Release:        1%{?dist}
+Release:        2%{?dist}
 Summary:        The Rust Programming Language
 License:        (ASL 2.0 or MIT) and (BSD and MIT)
 # ^ written as: (rust itself) and (bundled libraries)
@@ -84,9 +84,9 @@ Patch101:       rustc-1.51.0-disable-http2.patch
 # (affects RHEL6 kernels when building for RHEL7)
 Patch102:       rustc-1.51.0-no-default-pie.patch
 
-# Initial support for OpenSSL 3.0.0-alpha15
+# Initial support for OpenSSL 3.0.0-alpha16
 # https://github.com/sfackler/rust-openssl/pull/1264
-%global rust_openssl_commit cc1c74c1a313ac46b5fa3da602a46cff6fdd06a2
+%global rust_openssl_commit 770ba32702abd2b4cab80727958c27ac3043c3ec
 %global rust_openssl rust-openssl-%{rust_openssl_commit}
 Source103:      https://github.com/sfackler/rust-openssl/archive/%{rust_openssl_commit}/%{rust_openssl}.tar.gz
 Patch103:       rust-openssl-300.patch
@@ -743,6 +743,9 @@ export %{rust_env}
 
 
 %changelog
+* Tue May 18 2021 Josh Stone <jistone@redhat.com> - 1.52.1-2
+- Rebuild for OpenSSL 3.0.0-alpha16
+
 * Thu May 13 2021 Josh Stone <jistone@redhat.com> - 1.52.1-1
 - Update to 1.52.1. Includes security fixes for CVE-2020-36323,
   CVE-2021-28876, CVE-2021-28878, CVE-2021-28879, and CVE-2021-31162.
