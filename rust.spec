@@ -17,6 +17,15 @@
 # Only the specified arches will use bootstrap binaries.
 #global bootstrap_arches %%{rust_arches}
 
+# Define a space-separated list of targets to ship rust-std-static-$triple for
+# cross-compilation. The packages are noarch, but they're not fully
+# reproducible between hosts, so only x86_64 actually builds it.
+%ifarch x86_64
+%if 0%{?fedora} || 0%{?rhel} >= 8
+%global cross_targets wasm32-unknown-unknown
+%endif
+%endif
+
 # Using llvm-static may be helpful as an opt-in, e.g. to aid LLVM rebases.
 %bcond_with llvm_static
 
@@ -53,7 +62,7 @@
 
 Name:           rust
 Version:        1.52.1
-Release:        2%{?dist}
+Release:        3%{?dist}
 Summary:        The Rust Programming Language
 License:        (ASL 2.0 or MIT) and (BSD and MIT)
 # ^ written as: (rust itself) and (bundled libraries)
@@ -70,6 +79,9 @@ Source0:        https://static.rust-lang.org/dist/%{rustc_package}.tar.xz
 # This internal rust-abi change broke s390x -- revert for now.
 # https://github.com/rust-lang/rust/issues/80810#issuecomment-781784032
 Patch1:         0001-Revert-Auto-merge-of-79547.patch
+
+# By default, rust tries to use "rust-lld" as a linker for WebAssembly.
+Patch2:         0001-Use-lld-provided-by-system-for-wasm.patch
 
 ### RHEL-specific patches below ###
 
@@ -237,6 +249,19 @@ Requires:       /usr/bin/cc
 %endif
 %endif
 
+# We're going to override --libdir when configuring to get rustlib into a
+# common path, but we'll fix the shared libraries during install.
+%global common_libdir %{_prefix}/lib
+%global rustlibdir %{common_libdir}/rustlib
+
+%if %defined cross_targets
+# brp-strip-static-archive breaks the archive index for wasm
+%global __os_install_post \
+%__os_install_post \
+find %{buildroot}%{rustlibdir} -type f -path '*/wasm*/lib/*.rlib' -exec ranlib '{}' ';' \
+%{nil}
+%endif
+
 %description
 Rust is a systems programming language that runs blazingly fast, prevents
 segfaults, and guarantees thread safety.
@@ -250,6 +275,32 @@ Summary:        Standard library for Rust
 %description std-static
 This package includes the standard libraries for building applications
 written in Rust.
+
+%if %defined cross_targets
+%{lua: do
+  for triple in string.gmatch(rpm.expand("%{cross_targets}"), "%S+") do
+    local requires = rpm.expand("Requires: rust = %{version}-%{release}")
+    if string.sub(triple, 1, 4) == "wasm" then
+      requires = requires .. "\nRequires: lld >= 8.0"
+    end
+    local subs = {
+      triple = triple,
+      requires = requires,
+    }
+    local s = string.gsub([[
+%package std-static-{{triple}}
+Summary:        Standard library for Rust
+BuildArch:      noarch
+{{requires}}
+
+%description std-static-{{triple}}
+This package includes the standard libraries for building applications
+written in Rust for the {{triple}} target.
+]], "{{(%w+)}}", subs)
+    print(s)
+  end
+end}
+%endif
 
 
 %package debugger-common
@@ -408,6 +459,7 @@ test -f '%{local_rust_root}/bin/rustc'
 %setup -q -n %{rustc_package}
 
 %patch1 -p1
+%patch2 -p1
 
 %if %with disabled_libssh2
 %patch100 -p1
@@ -497,11 +549,6 @@ find -name '*.rs' -type f -perm /111 -exec chmod -v -x '{}' '+'
 %build
 export %{rust_env}
 
-# We're going to override --libdir when configuring to get rustlib into a
-# common path, but we'll fix the shared libraries during install.
-%global common_libdir %{_prefix}/lib
-%global rustlibdir %{common_libdir}/rustlib
-
 %ifarch %{arm} %{ix86} s390x
 # full debuginfo is exhausting memory; just do libstd for now
 # https://github.com/rust-lang/rust/issues/45854
@@ -514,13 +561,6 @@ export %{rust_env}
 %endif
 %else
 %define enable_debuginfo --debuginfo-level=2
-%endif
-
-# We want the best optimization for std, but it caused problems for rpm-ostree
-# on ppc64le to have all of the compiler_builtins in a single object:
-# https://bugzilla.redhat.com/show_bug.cgi?id=1713090
-%ifnarch %{power64}
-%define codegen_units_std --set rust.codegen-units-std=1
 %endif
 
 # Some builders have relatively little memory for their CPU count.
@@ -541,6 +581,7 @@ fi
     %{!?with_llvm_static: --enable-llvm-link-shared } } \
   --disable-rpath \
   %{enable_debuginfo} \
+  --set rust.codegen-units-std=1 \
   --enable-extended \
   --tools=analysis,cargo,clippy,rls,rustfmt,src \
   --enable-vendor \
@@ -552,11 +593,22 @@ fi
 %{python} ./x.py build -j "$ncpus" --stage 2
 %{python} ./x.py doc --stage 2
 
+%if %defined cross_targets
+for triple in %{cross_targets}; do
+  %{python} ./x.py build --stage 2 --target=$triple std
+done
+%endif
 
 %install
 export %{rust_env}
 
 DESTDIR=%{buildroot} %{python} ./x.py install
+
+%if %defined cross_targets
+for triple in %{cross_targets}; do
+  DESTDIR=%{buildroot} %{python} ./x.py install --target=$triple std
+done
+%endif
 
 # Make sure the shared libraries are in the proper libdir
 %if "%{_libdir}" != "%{common_libdir}"
@@ -660,6 +712,26 @@ export %{rust_env}
 %{rustlibdir}/%{rust_triple}/lib/*.rlib
 
 
+%if %defined cross_targets
+%{lua: do
+  for triple in string.gmatch(rpm.expand("%{cross_targets}"), "%S+") do
+    local subs = {
+      triple = triple,
+      rustlibdir = rpm.expand("%{rustlibdir}"),
+    }
+    local s = string.gsub([[
+%files std-static-{{triple}}
+%dir {{rustlibdir}}
+%dir {{rustlibdir}}/{{triple}}
+%dir {{rustlibdir}}/{{triple}}/lib
+{{rustlibdir}}/{{triple}}/lib/*.rlib
+]], "{{(%w+)}}", subs)
+    print(s)
+  end
+end}
+%endif
+
+
 %files debugger-common
 %dir %{rustlibdir}
 %dir %{rustlibdir}/etc
@@ -743,6 +815,10 @@ export %{rust_env}
 
 
 %changelog
+* Mon Jun 07 2021 Josh Stone <jistone@redhat.com> - 1.52.1-3
+- Set rust.codegen-units-std=1 for all targets again.
+- Add rust-std-static-wasm32-unknown-unknown.
+
 * Tue May 18 2021 Josh Stone <jistone@redhat.com> - 1.52.1-2
 - Rebuild for OpenSSL 3.0.0-alpha16
 
