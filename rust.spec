@@ -62,7 +62,7 @@
 
 Name:           rust
 Version:        1.52.1
-Release:        3%{?dist}
+Release:        4%{?dist}
 Summary:        The Rust Programming Language
 License:        (ASL 2.0 or MIT) and (BSD and MIT)
 # ^ written as: (rust itself) and (bundled libraries)
@@ -815,6 +815,11 @@ end}
 
 
 %changelog
+* Tue Jun 15 2021 Mohan Boddu <mboddu@redhat.com> - 1.52.1-4
+- Rebuilt for RHEL 9 BETA for openssl 3.0
+
+Related: rhbz#1971065
+
 * Mon Jun 07 2021 Josh Stone <jistone@redhat.com> - 1.52.1-3
 - Set rust.codegen-units-std=1 for all targets again.
 - Add rust-std-static-wasm32-unknown-unknown.
