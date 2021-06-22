@@ -9,10 +9,10 @@
 # e.g. 1.10.0 wants rustc: 1.9.0-2016-05-24
 # or nightly wants some beta-YYYY-MM-DD
 # Note that cargo matches the program version here, not its crate version.
-%global bootstrap_rust 1.51.0
-%global bootstrap_cargo 1.51.0
-%global bootstrap_channel 1.51.0
-%global bootstrap_date 2021-03-25
+%global bootstrap_rust 1.52.0
+%global bootstrap_cargo 1.52.0
+%global bootstrap_channel 1.52.0
+%global bootstrap_date 2021-05-06
 
 # Only the specified arches will use bootstrap binaries.
 #global bootstrap_arches %%{rust_arches}
@@ -30,7 +30,7 @@
 %bcond_with llvm_static
 
 # We can also choose to just use Rust's bundled LLVM, in case the system LLVM
-# is insufficient.  Rust currently requires LLVM 9.0+.
+# is insufficient.  Rust currently requires LLVM 10.0+.
 %bcond_with bundled_llvm
 
 # Requires stable libgit2 1.1
@@ -61,8 +61,8 @@
 %endif
 
 Name:           rust
-Version:        1.52.1
-Release:        4%{?dist}
+Version:        1.53.0
+Release:        1%{?dist}
 Summary:        The Rust Programming Language
 License:        (ASL 2.0 or MIT) and (BSD and MIT)
 # ^ written as: (rust itself) and (bundled libraries)
@@ -90,18 +90,18 @@ Patch100:       rustc-1.48.0-disable-libssh2.patch
 
 # libcurl on RHEL7 doesn't have http2, but since cargo requests it, curl-sys
 # will try to build it statically -- instead we turn off the feature.
-Patch101:       rustc-1.51.0-disable-http2.patch
+Patch101:       rustc-1.53.0-disable-http2.patch
 
 # kernel rh1410097 causes too-small stacks for PIE.
 # (affects RHEL6 kernels when building for RHEL7)
 Patch102:       rustc-1.51.0-no-default-pie.patch
 
-# Initial support for OpenSSL 3.0.0-alpha16
+# Add support for OpenSSL 3.0.0
+# https://github.com/rust-lang/rust/pull/86529/
 # https://github.com/sfackler/rust-openssl/pull/1264
-%global rust_openssl_commit 770ba32702abd2b4cab80727958c27ac3043c3ec
-%global rust_openssl rust-openssl-%{rust_openssl_commit}
-Source103:      https://github.com/sfackler/rust-openssl/archive/%{rust_openssl_commit}/%{rust_openssl}.tar.gz
 Patch103:       rust-openssl-300.patch
+Source103:      https://crates.io/api/v1/crates/openssl/0.10.35/download#/openssl-0.10.35.crate
+Source104:      https://crates.io/api/v1/crates/openssl-sys/0.9.65/download#/openssl-sys-0.9.65.crate
 
 
 # Get the Rust triple for any arch.
@@ -188,7 +188,7 @@ Provides:       bundled(llvm) = 12.0.0
 %else
 BuildRequires:  cmake >= 2.8.11
 %if 0%{?epel} == 7
-%global llvm llvm9.0
+%global llvm llvm11
 %endif
 %if %defined llvm
 %global llvm_root %{_libdir}/%{llvm}
@@ -196,7 +196,7 @@ BuildRequires:  cmake >= 2.8.11
 %global llvm llvm
 %global llvm_root %{_prefix}
 %endif
-BuildRequires:  %{llvm}-devel >= 9.0
+BuildRequires:  %{llvm}-devel >= 10.0
 %if %with llvm_static
 BuildRequires:  %{llvm}-static
 BuildRequires:  libffi-devel
@@ -220,6 +220,14 @@ Requires:       %{name}-std-static%{?_isa} = %{version}-%{release}
 # invoke the linker directly, and then we'll only need binutils.
 # https://github.com/rust-lang/rust/issues/11937
 Requires:       /usr/bin/cc
+
+%if 0%{?epel} == 7
+%global devtoolset_name devtoolset-9
+BuildRequires:  %{devtoolset_name}-gcc
+BuildRequires:  %{devtoolset_name}-gcc-c++
+%global __cc /opt/rh/%{devtoolset_name}/root/usr/bin/gcc
+%global __cxx /opt/rh/%{devtoolset_name}/root/usr/bin/g++
+%endif
 
 # ALL Rust libraries are private, because they don't keep an ABI.
 %global _privatelibs lib(.*-[[:xdigit:]]{16}*|rustc.*)[.]so.*
@@ -501,8 +509,10 @@ rm -rf vendor/libgit2-sys/libgit2/
 rm -rf vendor/libssh2-sys/
 %endif
 
-rm -rf vendor/openssl{,-sys}/*
-tar -xf %{SOURCE103} -C vendor/ --strip-components=1 %{rust_openssl}/openssl{,-sys}/
+# Add support for OpenSSL 3.0.0
+rm -rf vendor/openssl{,-sys}/
+tar -xf %{SOURCE103} -C vendor/
+tar -xf %{SOURCE104} -C vendor/
 %patch103 -p1
 
 # This only affects the transient rust-installer, but let it use our dynamic xz-libs
@@ -574,6 +584,9 @@ fi
 %configure --disable-option-checking \
   --libdir=%{common_libdir} \
   --build=%{rust_triple} --host=%{rust_triple} --target=%{rust_triple} \
+  --set target.%{rust_triple}.linker=%{__cc} \
+  --set target.%{rust_triple}.cc=%{__cc} \
+  --set target.%{rust_triple}.cxx=%{__cxx} \
   --python=%{python} \
   --local-rust-root=%{local_rust_root} \
   %{!?with_bundled_llvm: --llvm-root=%{llvm_root} \
@@ -815,10 +828,12 @@ end}
 
 
 %changelog
+* Tue Jun 22 2021 Josh Stone <jistone@redhat.com> - 1.53.0-1
+- Update to 1.53.0.
+- Update openssl crates to published versions for 3.0 support.
+
 * Tue Jun 15 2021 Mohan Boddu <mboddu@redhat.com> - 1.52.1-4
 - Rebuilt for RHEL 9 BETA for openssl 3.0
-
-Related: rhbz#1971065
 
 * Mon Jun 07 2021 Josh Stone <jistone@redhat.com> - 1.52.1-3
 - Set rust.codegen-units-std=1 for all targets again.
