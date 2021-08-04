@@ -351,3 +351,9 @@
 /rust-1.52.0-x86_64-unknown-linux-gnu.tar.xz
 /openssl-0.10.35.crate
 /openssl-sys-0.9.65.crate
+/rustc-1.54.0-src.tar.xz
+/rust-1.53.0-aarch64-unknown-linux-gnu.tar.xz
+/rust-1.53.0-i686-unknown-linux-gnu.tar.xz
+/rust-1.53.0-powerpc64le-unknown-linux-gnu.tar.xz
+/rust-1.53.0-s390x-unknown-linux-gnu.tar.xz
+/rust-1.53.0-x86_64-unknown-linux-gnu.tar.xz
