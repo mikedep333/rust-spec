@@ -62,7 +62,7 @@
 
 Name:           rust
 Version:        1.54.0
-Release:        1%{?dist}
+Release:        2%{?dist}
 Summary:        The Rust Programming Language
 License:        (ASL 2.0 or MIT) and (BSD and MIT)
 # ^ written as: (rust itself) and (bundled libraries)
@@ -836,6 +836,10 @@ end}
 
 
 %changelog
+* Tue Aug 10 2021 Mohan Boddu <mboddu@redhat.com> - 1.54.0-2
+- Rebuilt for IMA sigs, glibc 2.34, aarch64 flags
+  Related: rhbz#1991688
+
 * Wed Aug 04 2021 Josh Stone <jistone@redhat.com> - 1.54.0-1
 - Update to 1.54.0.
 
