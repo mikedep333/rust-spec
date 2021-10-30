@@ -1,6 +1,7 @@
 # Only x86_64 and i686 are Tier 1 platforms at this time.
 # https://doc.rust-lang.org/nightly/rustc/platform-support.html
-%global rust_arches x86_64 i686 armv7hl aarch64 ppc64 ppc64le s390x
+#global rust_arches x86_64 i686 armv7hl aarch64 ppc64 ppc64le s390x
+%global rust_arches x86_64 i686 aarch64 ppc64le s390x
 
 # The channel can be stable, beta, or nightly
 %{!?channel: %global channel stable}
@@ -9,10 +10,10 @@
 # e.g. 1.10.0 wants rustc: 1.9.0-2016-05-24
 # or nightly wants some beta-YYYY-MM-DD
 # Note that cargo matches the program version here, not its crate version.
-%global bootstrap_rust 1.53.0
-%global bootstrap_cargo 1.53.0
-%global bootstrap_channel 1.53.0
-%global bootstrap_date 2021-06-17
+%global bootstrap_rust 1.54.0
+%global bootstrap_cargo 1.54.0
+%global bootstrap_channel 1.54.0
+%global bootstrap_date 2021-07-29
 
 # Only the specified arches will use bootstrap binaries.
 #global bootstrap_arches %%{rust_arches}
@@ -61,8 +62,8 @@
 %endif
 
 Name:           rust
-Version:        1.54.0
-Release:        2%{?dist}
+Version:        1.55.0
+Release:        1%{?dist}
 Summary:        The Rust Programming Language
 License:        (ASL 2.0 or MIT) and (BSD and MIT)
 # ^ written as: (rust itself) and (bundled libraries)
@@ -90,19 +91,11 @@ Patch100:       rustc-1.48.0-disable-libssh2.patch
 
 # libcurl on RHEL7 doesn't have http2, but since cargo requests it, curl-sys
 # will try to build it statically -- instead we turn off the feature.
-Patch101:       rustc-1.53.0-disable-http2.patch
+Patch101:       rustc-1.55.0-disable-http2.patch
 
 # kernel rh1410097 causes too-small stacks for PIE.
 # (affects RHEL6 kernels when building for RHEL7)
 Patch102:       rustc-1.51.0-no-default-pie.patch
-
-# Add support for OpenSSL 3.0.0
-# https://github.com/rust-lang/rust/pull/86529/
-# https://github.com/sfackler/rust-openssl/pull/1264
-Patch103:       rust-openssl-300.patch
-Source103:      https://crates.io/api/v1/crates/openssl/0.10.35/download#/openssl-0.10.35.crate
-Source104:      https://crates.io/api/v1/crates/openssl-sys/0.9.65/download#/openssl-sys-0.9.65.crate
-
 
 # Get the Rust triple for any arch.
 %{lua: function rust_triple(arch)
@@ -184,7 +177,7 @@ BuildRequires:  %{python}
 
 %if %with bundled_llvm
 BuildRequires:  cmake3 >= 3.13.4
-Provides:       bundled(llvm) = 12.0.0
+Provides:       bundled(llvm) = 12.0.1
 %else
 BuildRequires:  cmake >= 2.8.11
 %if 0%{?epel} == 7
@@ -266,7 +259,7 @@ BuildRequires:  %{devtoolset_name}-gcc-c++
 # brp-strip-static-archive breaks the archive index for wasm
 %global __os_install_post \
 %__os_install_post \
-find %{buildroot}%{rustlibdir} -type f -path '*/wasm*/lib/*.rlib' -exec ranlib '{}' ';' \
+find '%{buildroot}%{rustlibdir}' -type f -path '*/wasm*/lib/*.rlib' -print -exec '%{llvm_root}/bin/llvm-ranlib' '{}' ';' \
 %{nil}
 %endif
 
@@ -509,12 +502,6 @@ rm -rf vendor/libgit2-sys/libgit2/
 rm -rf vendor/libssh2-sys/
 %endif
 
-# Add support for OpenSSL 3.0.0
-rm -rf vendor/openssl{,-sys}/
-tar -xf %{SOURCE103} -C vendor/
-tar -xf %{SOURCE104} -C vendor/
-%patch103 -p1
-
 # This only affects the transient rust-installer, but let it use our dynamic xz-libs
 sed -i.lzma -e '/LZMA_API_STATIC/d' src/bootstrap/tool.rs
 
@@ -696,6 +683,12 @@ rm -f %{buildroot}%{rustlibdir}/%{rust_triple}/bin/rust-ll*
 %check
 export %{rust_env}
 
+# Sanity-check the installed binaries, debuginfo-stripped and all.
+%{buildroot}%{_bindir}/cargo new build/hello-world
+env RUSTC=%{buildroot}%{_bindir}/rustc \
+    LD_LIBRARY_PATH="%{buildroot}%{_libdir}:$LD_LIBRARY_PATH" \
+    %{buildroot}%{_bindir}/cargo run --manifest-path build/hello-world/Cargo.toml
+
 # The results are not stable on koji, so mask errors and just log it.
 # Some of the larger test artifacts are manually cleaned to save space.
 %{python} ./x.py test --no-fail-fast --stage 2 || :
@@ -836,6 +829,9 @@ end}
 
 
 %changelog
+* Fri Oct 29 2021 Josh Stone <jistone@redhat.com> - 1.55.0-1
+- Update to 1.55.0.
+
 * Tue Aug 10 2021 Mohan Boddu <mboddu@redhat.com> - 1.54.0-2
 - Rebuilt for IMA sigs, glibc 2.34, aarch64 flags
   Related: rhbz#1991688
