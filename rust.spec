@@ -1,6 +1,5 @@
 # Only x86_64 and i686 are Tier 1 platforms at this time.
 # https://doc.rust-lang.org/nightly/rustc/platform-support.html
-#global rust_arches x86_64 i686 armv7hl aarch64 ppc64 ppc64le s390x
 %global rust_arches x86_64 i686 aarch64 ppc64le s390x
 
 # The channel can be stable, beta, or nightly
@@ -23,9 +22,18 @@
 # reproducible between hosts, so only x86_64 actually builds it.
 %ifarch x86_64
 %if 0%{?fedora} || 0%{?rhel} >= 8
-%global cross_targets wasm32-unknown-unknown
+%global cross_targets wasm32-unknown-unknown wasm32-wasi
 %endif
 %endif
+
+# We need CRT files for *-wasi targets, at least as new as the commit in
+# src/ci/docker/host-x86_64/dist-various-2/build-wasi-toolchain.sh
+%global forgeurl1 https://github.com/WebAssembly/wasi-libc
+%global commit1 ad5133410f66b93a2381db5b542aad5e0964db96
+%forgemeta -z 1
+%undefine distprefix1
+%global wasi_libc_source %{forgesource1}
+%global wasi_libc_dir %{_builddir}/%{extractdir1}
 
 # Using llvm-static may be helpful as an opt-in, e.g. to aid LLVM rebases.
 %bcond_with llvm_static
@@ -63,7 +71,7 @@
 
 Name:           rust
 Version:        1.56.1
-Release:        1%{?dist}
+Release:        2%{?dist}
 Summary:        The Rust Programming Language
 License:        (ASL 2.0 or MIT) and (BSD and MIT)
 # ^ written as: (rust itself) and (bundled libraries)
@@ -76,6 +84,8 @@ ExclusiveArch:  %{rust_arches}
 %global rustc_package rustc-%{channel}-src
 %endif
 Source0:        https://static.rust-lang.org/dist/%{rustc_package}.tar.xz
+Source1:        %{wasi_libc_source}
+# Sources for bootstrap_arches are inserted by lua below
 
 # An internal rust-abi change broke s390x, but it's fixed in LLVM 12.0.1.
 # We'll revert the change on Fedora 33 that has an unpatched LLVM 11.
@@ -128,6 +138,7 @@ end}
                           .."/rust-%{bootstrap_channel}")
   local target_arch = rpm.expand("%{_target_cpu}")
   for i, arch in ipairs(bootstrap_arches) do
+    i = 100 + i
     print(string.format("Source%d: %s-%s.tar.xz\n",
                         i, base, rust_triple(arch)))
     if arch == target_arch then
@@ -258,6 +269,7 @@ BuildRequires:  %{devtoolset_name}-gcc-c++
 %global rustlibdir %{common_libdir}/rustlib
 
 %if %defined cross_targets
+BuildRequires:  clang
 # brp-strip-static-archive breaks the archive index for wasm
 %global __os_install_post \
 %__os_install_post \
@@ -282,23 +294,29 @@ written in Rust.
 %if %defined cross_targets
 %{lua: do
   for triple in string.gmatch(rpm.expand("%{cross_targets}"), "%S+") do
-    local requires = rpm.expand("Requires: rust = %{version}-%{release}")
-    if string.sub(triple, 1, 4) == "wasm" then
-      requires = requires .. "\nRequires: lld >= 8.0"
-    end
     local subs = {
       triple = triple,
-      requires = requires,
+      verrel = rpm.expand("%{version}-%{release}"),
+      wasm = string.sub(triple, 1, 4) == "wasm" and 1 or 0,
+      wasi = string.find(triple, "-wasi") and 1 or 0,
     }
     local s = string.gsub([[
+
 %package std-static-{{triple}}
 Summary:        Standard library for Rust
 BuildArch:      noarch
-{{requires}}
+Requires:       rust = {{verrel}}
+%if {{wasm}}
+Requires:       lld >= 8.0
+%endif
+%if {{wasi}}
+Provides:       bundled(wasi-libc)
+%endif
 
 %description std-static-{{triple}}
 This package includes the standard libraries for building applications
 written in Rust for the {{triple}} target.
+
 ]], "{{(%w+)}}", subs)
     print(s)
   end
@@ -459,6 +477,10 @@ test -f '%{local_rust_root}/bin/cargo'
 test -f '%{local_rust_root}/bin/rustc'
 %endif
 
+%if %defined cross_targets
+%forgesetup -z 1
+%endif
+
 %setup -q -n %{rustc_package}
 
 %if 0%{?fedora} == 33
@@ -574,6 +596,22 @@ if [ "$max_cpus" -ge 1 -a "$max_cpus" -lt "$ncpus" ]; then
   ncpus="$max_cpus"
 fi
 
+%if %defined cross_targets
+%make_build -C %{wasi_libc_dir}
+%{lua: do
+  local wasi_root = rpm.expand("%{wasi_libc_dir}") .. "/sysroot"
+  local set_wasi_root = ""
+  for triple in string.gmatch(rpm.expand("%{cross_targets}"), "%S+") do
+    if string.find(triple, "-wasi") then
+      set_wasi_root = set_wasi_root .. " --set target." .. triple .. ".wasi-root=" .. wasi_root
+    end
+  end
+  if wasi_root ~= "" then
+    rpm.define("set_wasi_root "..set_wasi_root)
+  end
+end}
+%endif
+
 %configure --disable-option-checking \
   --libdir=%{common_libdir} \
   --build=%{rust_triple} --host=%{rust_triple} --target=%{rust_triple} \
@@ -592,7 +630,8 @@ fi
   --tools=analysis,cargo,clippy,rls,rustfmt,src \
   --enable-vendor \
   --enable-verbose-tests \
-  %{?codegen_units_std} \
+  %{?set_wasi_root} \
+  --dist-compression-formats=gz \
   --release-channel=%{channel} \
   --release-description="%{?fedora:Fedora }%{?rhel:Red Hat }%{version}-%{release}"
 
@@ -704,7 +743,10 @@ rm -rf "./build/%{rust_triple}/test/"
 rm -rf "./build/%{rust_triple}/stage2-tools/%{rust_triple}/cit/"
 
 %{python} ./x.py test --no-fail-fast --stage 2 clippy || :
+
+env RLS_TEST_WAIT_FOR_AGES=1 \
 %{python} ./x.py test --no-fail-fast --stage 2 rls || :
+
 %{python} ./x.py test --no-fail-fast --stage 2 rustfmt || :
 
 
@@ -738,13 +780,20 @@ rm -rf "./build/%{rust_triple}/stage2-tools/%{rust_triple}/cit/"
     local subs = {
       triple = triple,
       rustlibdir = rpm.expand("%{rustlibdir}"),
+      wasi = string.find(triple, "-wasi") and 1 or 0,
     }
     local s = string.gsub([[
+
 %files std-static-{{triple}}
 %dir {{rustlibdir}}
 %dir {{rustlibdir}}/{{triple}}
 %dir {{rustlibdir}}/{{triple}}/lib
 {{rustlibdir}}/{{triple}}/lib/*.rlib
+%if {{wasi}}
+%dir {{rustlibdir}}/{{triple}}/lib/self-contained
+{{rustlibdir}}/{{triple}}/lib/self-contained/crt*.o
+%endif
+
 ]], "{{(%w+)}}", subs)
     print(s)
   end
@@ -835,6 +884,10 @@ end}
 
 
 %changelog
+* Wed Dec 01 2021 Josh Stone <jistone@redhat.com> - 1.56.1-2
+- Add rust-std-static-wasm32-wasi
+  Resolves: rhbz#1980082
+
 * Thu Nov 04 2021 Josh Stone <jistone@redhat.com> - 1.56.1-1
 - Update to 1.56.1.
 
