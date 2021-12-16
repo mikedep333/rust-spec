@@ -9,10 +9,10 @@
 # e.g. 1.10.0 wants rustc: 1.9.0-2016-05-24
 # or nightly wants some beta-YYYY-MM-DD
 # Note that cargo matches the program version here, not its crate version.
-%global bootstrap_rust 1.55.0
-%global bootstrap_cargo 1.55.0
-%global bootstrap_channel 1.55.0
-%global bootstrap_date 2021-09-09
+%global bootstrap_rust 1.56.1
+%global bootstrap_cargo 1.56.1
+%global bootstrap_channel 1.56.1
+%global bootstrap_date 2021-11-01
 
 # Only the specified arches will use bootstrap binaries.
 #global bootstrap_arches %%{rust_arches}
@@ -42,8 +42,8 @@
 # is insufficient.  Rust currently requires LLVM 10.0+.
 %bcond_with bundled_llvm
 
-# Requires stable libgit2 1.1
-%if 0%{?fedora} >= 34
+# Requires stable libgit2 1.3
+%if 0%{?fedora} >= 36
 %bcond_with bundled_libgit2
 %else
 %bcond_without bundled_libgit2
@@ -70,8 +70,8 @@
 %endif
 
 Name:           rust
-Version:        1.56.1
-Release:        2%{?dist}
+Version:        1.57.0
+Release:        1%{?dist}
 Summary:        The Rust Programming Language
 License:        (ASL 2.0 or MIT) and (BSD and MIT)
 # ^ written as: (rust itself) and (bundled libraries)
@@ -87,10 +87,9 @@ Source0:        https://static.rust-lang.org/dist/%{rustc_package}.tar.xz
 Source1:        %{wasi_libc_source}
 # Sources for bootstrap_arches are inserted by lua below
 
-# An internal rust-abi change broke s390x, but it's fixed in LLVM 12.0.1.
-# We'll revert the change on Fedora 33 that has an unpatched LLVM 11.
-# https://github.com/rust-lang/rust/issues/80810#issuecomment-781784032
-Patch1:         0001-Revert-Auto-merge-of-79547.patch
+# Fix a bad typecast for LLVM globals, rhbz#1990657
+# https://github.com/rust-lang/rust/pull/91070
+Patch1:         rust-pr91070.patch
 
 # By default, rust tries to use "rust-lld" as a linker for WebAssembly.
 Patch2:         0001-Use-lld-provided-by-system-for-wasm.patch
@@ -102,11 +101,11 @@ Patch100:       rustc-1.56.0-disable-libssh2.patch
 
 # libcurl on RHEL7 doesn't have http2, but since cargo requests it, curl-sys
 # will try to build it statically -- instead we turn off the feature.
-Patch101:       rustc-1.56.0-disable-http2.patch
+Patch101:       rustc-1.57.0-disable-http2.patch
 
 # kernel rh1410097 causes too-small stacks for PIE.
 # (affects RHEL6 kernels when building for RHEL7)
-Patch102:       rustc-1.51.0-no-default-pie.patch
+Patch102:       rustc-1.57.0-no-default-pie.patch
 
 # Get the Rust triple for any arch.
 %{lua: function rust_triple(arch)
@@ -175,8 +174,8 @@ BuildRequires:  pkgconfig(liblzma)
 BuildRequires:  pkgconfig(openssl)
 BuildRequires:  pkgconfig(zlib)
 
-%if %without bundled_libgit2
-BuildRequires:  pkgconfig(libgit2) >= 1.1.0
+%if %{without bundled_libgit2}
+BuildRequires:  pkgconfig(libgit2) >= 1.3.0
 %endif
 
 %if %{without disabled_libssh2}
@@ -374,7 +373,7 @@ its standard library.
 %package -n cargo
 Summary:        Rust's package manager and build tool
 %if %with bundled_libgit2
-Provides:       bundled(libgit2) = 1.1.0
+Provides:       bundled(libgit2) = 1.3.0
 %endif
 # For tests:
 BuildRequires:  git
@@ -417,7 +416,7 @@ A tool for formatting Rust code according to style guidelines.
 %package -n rls
 Summary:        Rust Language Server for IDE integration
 %if %with bundled_libgit2
-Provides:       bundled(libgit2) = 1.1.0
+Provides:       bundled(libgit2) = 1.3.0
 %endif
 Requires:       rust-analysis
 # /usr/bin/rls is dynamically linked against internal rustc libs
@@ -483,11 +482,7 @@ test -f '%{local_rust_root}/bin/rustc'
 
 %setup -q -n %{rustc_package}
 
-%if 0%{?fedora} == 33
-# revert only for LLVM 11
 %patch1 -p1
-%endif
-
 %patch2 -p1
 
 %if %with disabled_libssh2
@@ -560,10 +555,6 @@ find -name '*.rs' -type f -perm /111 -exec chmod -v -x '{}' '+'
 %global rust_env RUSTFLAGS="%{rustflags}"
 %if 0%{?cmake_path:1}
 %global rust_env %{rust_env} PATH="%{cmake_path}:$PATH"
-%endif
-%if %without bundled_libgit2
-# convince libgit2-sys to use the distro libgit2
-%global rust_env %{rust_env} LIBGIT2_SYS_USE_PKG_CONFIG=1
 %endif
 %if %without disabled_libssh2
 # convince libssh2-sys to use the distro libssh2
@@ -884,6 +875,9 @@ end}
 
 
 %changelog
+* Wed Dec 15 2021 Josh Stone <jistone@redhat.com> - 1.57.0-1
+- Update to 1.57.0.
+
 * Wed Dec 01 2021 Josh Stone <jistone@redhat.com> - 1.56.1-2
 - Add rust-std-static-wasm32-wasi
   Resolves: rhbz#1980082
