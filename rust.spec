@@ -84,7 +84,7 @@
 
 Name:           rust
 Version:        1.64.0
-Release:        1%{?dist}
+Release:        2%{?dist}
 Summary:        The Rust Programming Language
 License:        (ASL 2.0 or MIT) and (BSD and MIT)
 # ^ written as: (rust itself) and (bundled libraries)
@@ -1054,6 +1054,9 @@ end}
 
 
 %changelog
+* Wed Oct 12 2022 Josh Stone <jistone@redhat.com> - 1.64.0-2
+- Rebuild for LLVM 15.0.1.
+
 * Thu Sep 22 2022 Josh Stone <jistone@redhat.com> - 1.64.0-1
 - Update to 1.64.0.
 - Add rust-analyzer.
