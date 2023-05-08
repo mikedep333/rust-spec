@@ -8,9 +8,9 @@
 # To bootstrap from scratch, set the channel and date from src/stage0.json
 # e.g. 1.59.0 wants rustc: 1.58.0-2022-01-13
 # or nightly wants some beta-YYYY-MM-DD
-%global bootstrap_version 1.65.0
-%global bootstrap_channel 1.65.0
-%global bootstrap_date 2022-11-03
+%global bootstrap_version 1.66.0
+%global bootstrap_channel 1.66.0
+%global bootstrap_date 2022-12-15
 
 # Only the specified arches will use bootstrap binaries.
 # NOTE: Those binaries used to be uploaded with every new release, but that was
@@ -35,7 +35,8 @@
 # src/ci/docker/host-x86_64/dist-various-2/build-wasi-toolchain.sh
 # (updated per https://github.com/rust-lang/rust/pull/96907)
 %global wasi_libc_url https://github.com/WebAssembly/wasi-libc
-%global wasi_libc_ref wasi-sdk-17
+#global wasi_libc_ref wasi-sdk-20
+%global wasi_libc_ref 1dfe5c302d1c5ab621f7abf04620fae92700fd22
 %global wasi_libc_name wasi-libc-%{wasi_libc_ref}
 %global wasi_libc_source %{wasi_libc_url}/archive/%{wasi_libc_ref}/%{wasi_libc_name}.tar.gz
 %global wasi_libc_dir %{_builddir}/%{wasi_libc_name}
@@ -46,7 +47,7 @@
 # We can also choose to just use Rust's bundled LLVM, in case the system LLVM
 # is insufficient.  Rust currently requires LLVM 12.0+.
 %global min_llvm_version 13.0.0
-%global bundled_llvm_version 15.0.2
+%global bundled_llvm_version 15.0.6
 %bcond_with bundled_llvm
 
 # Requires stable libgit2 1.5, and not the next minor soname change.
@@ -54,7 +55,7 @@
 %global min_libgit2_version 1.5.0
 %global next_libgit2_version 1.6.0~
 %global bundled_libgit2_version 1.5.0
-%if 0%{?fedora} >= 99
+%if 0%{?fedora} >= 38
 %bcond_with bundled_libgit2
 %else
 %bcond_without bundled_libgit2
@@ -83,7 +84,7 @@
 %endif
 
 Name:           rust
-Version:        1.66.1
+Version:        1.67.1
 Release:        1%{?dist}
 Summary:        The Rust Programming Language
 License:        (ASL 2.0 or MIT) and (BSD and MIT)
@@ -106,14 +107,12 @@ Patch1:         0001-Use-lld-provided-by-system-for-wasm.patch
 # Set a substitute-path in rust-gdb for standard library sources.
 Patch2:         rustc-1.61.0-rust-gdb-substitute-path.patch
 
-# https://github.com/rust-lang/rust/pull/103072
-Patch3:         0001-compiletest-set-the-dylib-path-when-gathering-target.patch
+# Fix Async Generator ABI (rhbz2168622)
+# https://github.com/rust-lang/rust/pull/105082
+Patch3:         0001-Fix-Async-Generator-ABI.patch
 
-# https://github.com/rust-lang/rust/pull/104001
-Patch4:         0001-Improve-generating-Custom-entry-function.patch
-
-# https://github.com/rust-lang/rust/pull/105468
-Patch5:         0001-Mangle-main-as-__main_void-on-wasm32-wasi.patch
+# https://github.com/rust-lang/rust/pull/105555
+Patch4:         0001-llvm-wrapper-adapt-for-LLVM-API-changes.patch
 
 ### RHEL-specific patches below ###
 
@@ -125,7 +124,7 @@ Patch100:       rustc-1.65.0-disable-libssh2.patch
 
 # libcurl on RHEL7 doesn't have http2, but since cargo requests it, curl-sys
 # will try to build it statically -- instead we turn off the feature.
-Patch101:       rustc-1.65.0-disable-http2.patch
+Patch101:       rustc-1.67.0-disable-http2.patch
 
 # kernel rh1410097 causes too-small stacks for PIE.
 # (affects RHEL6 kernels when building for RHEL7)
@@ -335,6 +334,7 @@ This package includes the Rust compiler and documentation generator.
 
 %package std-static
 Summary:        Standard library for Rust
+Provides:       %{name}-std-static-%{rust_triple} = %{version}-%{release}
 Requires:       %{name} = %{version}-%{release}
 Requires:       glibc-devel%{?_isa} >= 2.11
 
@@ -553,12 +553,13 @@ feature for the Rust standard library. The RLS (Rust Language Server) uses this
 data to provide information about the Rust standard library.
 
 
-%if 0%{?rhel} && 0%{?rhel} >= 8
+%if 0%{?rhel}
 
 %package toolset
 Summary:        Rust Toolset
-Requires:       rust%{?_isa} = %{version}-%{release}
-Requires:       cargo%{?_isa} = %{version}-%{release}
+BuildArch:      noarch
+Requires:       rust = %{version}-%{release}
+Requires:       cargo = %{version}-%{release}
 
 %description toolset
 This is the metapackage for Rust Toolset, bringing in the Rust compiler,
@@ -591,7 +592,6 @@ test -f '%{local_rust_root}/bin/rustc'
 %patch2 -p1
 %patch3 -p1
 %patch4 -p1
-%patch5 -p1
 
 %if %with disabled_libssh2
 %patch100 -p1
@@ -853,7 +853,7 @@ rm -f %{buildroot}%{rustlibdir}/etc/lldb_*
 # We don't want Rust copies of LLVM tools (rust-lld, rust-llvm-dwp)
 rm -f %{buildroot}%{rustlibdir}/%{rust_triple}/bin/rust-ll*
 
-%if 0%{?rhel} && 0%{?rhel} >= 8
+%if 0%{?rhel}
 # This allows users to build packages using Rust Toolset.
 %{__install} -D -m 644 %{S:100} %{buildroot}%{rpmmacrodir}/macros.rust-toolset
 %endif
@@ -991,16 +991,7 @@ end}
 %files doc
 %docdir %{_docdir}/%{name}
 %dir %{_docdir}/%{name}
-%dir %{_docdir}/%{name}/html
-%{_docdir}/%{name}/html/*/
-%{_docdir}/%{name}/html/*.html
-%{_docdir}/%{name}/html/*.css
-%{_docdir}/%{name}/html/*.js
-%{_docdir}/%{name}/html/*.png
-%{_docdir}/%{name}/html/*.svg
-%{_docdir}/%{name}/html/*.woff2
-%license %{_docdir}/%{name}/html/*.txt
-%license %{_docdir}/%{name}/html/*.md
+%{_docdir}/%{name}/html
 # former cargo-doc
 %docdir %{_docdir}/cargo
 %dir %{_docdir}/cargo
@@ -1049,13 +1040,16 @@ end}
 %{rustlibdir}/%{rust_triple}/analysis/
 
 
-%if 0%{?rhel} && 0%{?rhel} >= 8
+%if 0%{?rhel}
 %files toolset
 %{rpmmacrodir}/macros.rust-toolset
 %endif
 
 
 %changelog
+* Mon May 08 2023 Josh Stone <jistone@redhat.com> - 1.67.1-1
+- Update to 1.67.1.
+
 * Wed Jan 11 2023 Josh Stone <jistone@redhat.com> - 1.66.1-1
 - Update to 1.66.1.
 
