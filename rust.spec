@@ -8,9 +8,9 @@
 # To bootstrap from scratch, set the channel and date from src/stage0.json
 # e.g. 1.59.0 wants rustc: 1.58.0-2022-01-13
 # or nightly wants some beta-YYYY-MM-DD
-%global bootstrap_version 1.67.1
-%global bootstrap_channel 1.67.1
-%global bootstrap_date 2023-02-09
+%global bootstrap_version 1.68.2
+%global bootstrap_channel 1.68.2
+%global bootstrap_date 2023-03-28
 
 # Only the specified arches will use bootstrap binaries.
 # NOTE: Those binaries used to be uploaded with every new release, but that was
@@ -45,9 +45,9 @@
 %bcond_with llvm_static
 
 # We can also choose to just use Rust's bundled LLVM, in case the system LLVM
-# is insufficient.  Rust currently requires LLVM 12.0+.
-%global min_llvm_version 13.0.0
-%global bundled_llvm_version 15.0.6
+# is insufficient.  Rust currently requires LLVM 14.0+.
+%global min_llvm_version 14.0.0
+%global bundled_llvm_version 15.0.7
 %bcond_with bundled_llvm
 
 # Requires stable libgit2 1.5, and not the next minor soname change.
@@ -84,7 +84,7 @@
 %endif
 
 Name:           rust
-Version:        1.68.2
+Version:        1.69.0
 Release:        1%{?dist}
 Summary:        The Rust Programming Language
 License:        (ASL 2.0 or MIT) and (BSD and MIT)
@@ -107,6 +107,9 @@ Patch1:         0001-Use-lld-provided-by-system-for-wasm.patch
 # Set a substitute-path in rust-gdb for standard library sources.
 Patch2:         rustc-1.61.0-rust-gdb-substitute-path.patch
 
+# https://github.com/rust-lang/rust/pull/111167
+Patch3:         0001-debuginfo-split-method-declaration-and-definition.patch
+
 ### RHEL-specific patches below ###
 
 # Simple rpm macros for rust-toolset (as opposed to full rust-packaging)
@@ -117,7 +120,7 @@ Patch100:       rustc-1.65.0-disable-libssh2.patch
 
 # libcurl on RHEL7 doesn't have http2, but since cargo requests it, curl-sys
 # will try to build it statically -- instead we turn off the feature.
-Patch101:       rustc-1.68.0-disable-http2.patch
+Patch101:       rustc-1.69.0-disable-http2.patch
 
 # kernel rh1410097 causes too-small stacks for PIE.
 # (affects RHEL6 kernels when building for RHEL7)
@@ -140,7 +143,14 @@ Patch102:       rustc-1.65.0-no-default-pie.patch
   return arch.."-unknown-linux-"..abi
 end}
 
+# Get the environment form of a Rust triple
+%{lua: function rust_triple_env(triple)
+  local sub = string.gsub(triple, "-", "_")
+  return string.upper(sub)
+end}
+
 %global rust_triple %{lua: print(rust_triple(rpm.expand("%{_target_cpu}")))}
+%global rust_triple_env %{lua: print(rust_triple_env(rpm.expand("%{rust_triple}")))}
 
 %if %defined bootstrap_arches
 # For each bootstrap arch, add an additional binary Source.
@@ -216,7 +226,7 @@ Provides:       bundled(llvm) = %{bundled_llvm_version}
 %else
 BuildRequires:  cmake >= 2.8.11
 %if 0%{?epel} == 7
-%global llvm llvm13
+%global llvm llvm14
 %endif
 %if %defined llvm
 %global llvm_root %{_libdir}/%{llvm}
@@ -253,7 +263,7 @@ Requires:       %{name}-std-static%{?_isa} = %{version}-%{release}
 Requires:       /usr/bin/cc
 
 %if 0%{?epel} == 7
-%global devtoolset_name devtoolset-9
+%global devtoolset_name devtoolset-11
 BuildRequires:  %{devtoolset_name}-binutils
 BuildRequires:  %{devtoolset_name}-gcc
 BuildRequires:  %{devtoolset_name}-gcc-c++
@@ -317,6 +327,10 @@ BuildRequires:  lld
 find '%{buildroot}%{rustlibdir}'/wasm*/lib -type f -regex '.*\\.\\(a\\|rlib\\)' -print -exec '%{llvm_root}/bin/llvm-ranlib' '{}' ';' \
 %{nil}
 %endif
+
+# This component was removed as of Rust 1.69.0.
+# https://github.com/rust-lang/rust/pull/101841
+Obsoletes:      %{name}-analysis < 1.69.0~
 
 %description
 Rust is a systems programming language that runs blazingly fast, prevents
@@ -532,20 +546,6 @@ This package includes source files for the Rust standard library.  It may be
 useful as a reference for code completion tools in various editors.
 
 
-%package analysis
-Summary:        Compiler analysis data for the Rust standard library
-%if 0%{?rhel} && 0%{?rhel} < 8
-Requires:       %{name}-std-static%{?_isa} = %{version}-%{release}
-%else
-Recommends:     %{name}-std-static%{?_isa} = %{version}-%{release}
-%endif
-
-%description analysis
-This package contains analysis data files produced with rustc's -Zsave-analysis
-feature for the Rust standard library. The RLS (Rust Language Server) uses this
-data to provide information about the Rust standard library.
-
-
 %if 0%{?rhel}
 
 %package toolset
@@ -581,20 +581,21 @@ test -f '%{local_rust_root}/bin/rustc'
 
 %setup -q -n %{rustc_package}
 
-%patch1 -p1
-%patch2 -p1
+%patch -P1 -p1
+%patch -P2 -p1
+%patch -P3 -p1
 
 %if %with disabled_libssh2
-%patch100 -p1
+%patch -P100 -p1
 %endif
 
 %if %without curl_http2
-%patch101 -p1
+%patch -P101 -p1
 rm -rf vendor/libnghttp2-sys/
 %endif
 
 %if 0%{?rhel} && 0%{?rhel} < 8
-%patch102 -p1
+%patch -P102 -p1
 %endif
 
 # Use our explicit python3 first
@@ -658,9 +659,26 @@ find -name '*.rs' -type f -perm /111 -exec chmod -v -x '{}' '+'
 %global build_rustflags %{nil}
 %endif
 
+# These are similar to __cflags_arch_* in /usr/lib/rpm/redhat/macros
+%if 0%{?fedora} || 0%{?rhel} >= 9
+%ifarch x86_64
+%global rust_target_cpu %[0%{?rhel} >= 10 ? "x86-64-v3" : ""]
+%global rust_target_cpu %[0%{?rhel} == 9 ? "x86-64-v2" : "%{rust_target_cpu}"]
+%endif
+%ifarch s390x
+%global rust_target_cpu %[0%{?rhel} >= 9 ? "z14" : "zEC12"]
+%endif
+%ifarch ppc64le
+%global rust_target_cpu %[0%{?rhel} >= 9 ? "pwr9" : "pwr8"]
+%endif
+%endif
+
 # Set up shared environment variables for build/install/check
 %global rust_env %{?rustflags:RUSTFLAGS="%{rustflags}"}
-%if 0%{?cmake_path:1}
+%if "%{?rust_target_cpu}" != ""
+%global rust_env %{?rust_env} CARGO_TARGET_%{rust_triple_env}_RUSTFLAGS=-Ctarget-cpu=%{rust_target_cpu}
+%endif
+%if %defined cmake_path
 %global rust_env %{?rust_env} PATH="%{cmake_path}:$PATH"
 %endif
 %if %without disabled_libssh2
@@ -668,7 +686,6 @@ find -name '*.rs' -type f -perm /111 -exec chmod -v -x '{}' '+'
 %global rust_env %{?rust_env} LIBSSH2_SYS_USE_PKG_CONFIG=1
 %endif
 %global export_rust_env %{?rust_env:export %{rust_env}}
-
 
 %build
 %{export_rust_env}
@@ -755,7 +772,7 @@ end}
   --set build.install-stage=2 \
   --set build.test-stage=2 \
   --enable-extended \
-  --tools=analysis,cargo,clippy,rls,rust-analyzer,rustfmt,src \
+  --tools=cargo,clippy,rls,rust-analyzer,rustfmt,src \
   --enable-vendor \
   --enable-verbose-tests \
   --dist-compression-formats=gz \
@@ -770,6 +787,9 @@ for triple in %{?mingw_targets} %{?wasm_targets}; do
 done
 
 %install
+%if 0%{?rhel} && 0%{?rhel} <= 9
+%{?set_build_flags}
+%endif
 %{export_rust_env}
 
 DESTDIR=%{buildroot} %{__python3} ./x.py install
@@ -857,6 +877,9 @@ rm -f %{buildroot}%{rustlibdir}/%{rust_triple}/bin/rust-ll*
 
 
 %check
+%if 0%{?rhel} && 0%{?rhel} <= 9
+%{?set_build_flags}
+%endif
 %{export_rust_env}
 
 # Sanity-check the installed binaries, debuginfo-stripped and all.
@@ -1033,10 +1056,6 @@ end}
 %{rustlibdir}/src
 
 
-%files analysis
-%{rustlibdir}/%{rust_triple}/analysis/
-
-
 %if 0%{?rhel}
 %files toolset
 %{rpmmacrodir}/macros.rust-toolset
@@ -1044,6 +1063,10 @@ end}
 
 
 %changelog
+* Wed May 10 2023 Josh Stone <jistone@redhat.com> - 1.69.0-1
+- Update to 1.69.0.
+- Obsolete rust-analysis.
+
 * Tue May 09 2023 Josh Stone <jistone@redhat.com> - 1.68.2-1
 - Update to 1.68.2.
 
