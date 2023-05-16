@@ -6,3 +6,7 @@ debuginfo:
         # https://github.com/rust-lang/rust/issues/45854
         - /usr/lib/debug/usr/bin/rustc-*.i386.debug
 
+doc:
+    # Doc inspection generates massive output which crash RHEL CI
+    ignore:
+        - /usr/share/doc/rust/html/*
