@@ -1,6 +1,6 @@
 Name:           rust
 Version:        1.74.1
-Release:        1%{?dist}
+Release:        2%{?dist}
 Summary:        The Rust Programming Language
 License:        (Apache-2.0 OR MIT) AND (Artistic-2.0 AND BSD-3-Clause AND ISC AND MIT AND MPL-2.0 AND Unicode-DFS-2016)
 # ^ written as: (rust itself) and (bundled libraries)
@@ -1027,6 +1027,9 @@ rm -rf "./build/%{rust_triple}/stage2-tools/%{rust_triple}/cit/"
 
 
 %changelog
+* Fri Jan 05 2024 Josh Stone <jistone@redhat.com> - 1.74.1-2
+- Rebuild in a new side-tag.
+
 * Wed Jan 03 2024 Josh Stone <jistone@redhat.com> - 1.74.1-1
 - Update to 1.74.1.
 
