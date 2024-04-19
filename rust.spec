@@ -1,5 +1,5 @@
 Name:           rust
-Version:        1.76.0
+Version:        1.77.2
 Release:        1%{?dist}
 Summary:        The Rust Programming Language
 License:        (Apache-2.0 OR MIT) AND (Artistic-2.0 AND BSD-3-Clause AND ISC AND MIT AND MPL-2.0 AND Unicode-DFS-2016)
@@ -14,9 +14,9 @@ ExclusiveArch:  %{rust_arches}
 # To bootstrap from scratch, set the channel and date from src/stage0.json
 # e.g. 1.59.0 wants rustc: 1.58.0-2022-01-13
 # or nightly wants some beta-YYYY-MM-DD
-%global bootstrap_version 1.75.0
-%global bootstrap_channel 1.75.0
-%global bootstrap_date 2023-12-28
+%global bootstrap_version 1.76.0
+%global bootstrap_channel 1.76.0
+%global bootstrap_date 2024-02-08
 
 # Only the specified arches will use bootstrap binaries.
 # NOTE: Those binaries used to be uploaded with every new release, but that was
@@ -35,6 +35,11 @@ ExclusiveArch:  %{rust_arches}
 %global wasm_targets wasm32-unknown-unknown wasm32-wasi
 %if 0%{?fedora} || 0%{?rhel} >= 10
 %global extra_targets x86_64-unknown-none x86_64-unknown-uefi
+%endif
+%endif
+%ifarch aarch64
+%if 0%{?fedora} || 0%{?rhel} >= 10
+%global extra_targets aarch64-unknown-none-softfloat
 %endif
 %endif
 %global all_targets %{?mingw_targets} %{?wasm_targets} %{?extra_targets}
@@ -63,13 +68,15 @@ ExclusiveArch:  %{rust_arches}
 # is insufficient.  Rust currently requires LLVM 15.0+.
 %global min_llvm_version 15.0.0
 %global bundled_llvm_version 17.0.6
+#global llvm_compat_version 17
+%global llvm llvm%{?llvm_compat_version}
 %bcond_with bundled_llvm
 
 # Requires stable libgit2 1.7, and not the next minor soname change.
 # This needs to be consistent with the bindings in vendor/libgit2-sys.
-%global min_libgit2_version 1.7.1
+%global min_libgit2_version 1.7.2
 %global next_libgit2_version 1.8.0~
-%global bundled_libgit2_version 1.7.1
+%global bundled_libgit2_version 1.7.2
 %if 0%{?fedora} >= 39
 %bcond_with bundled_libgit2
 %else
@@ -83,9 +90,20 @@ ExclusiveArch:  %{rust_arches}
 %bcond_with disabled_libssh2
 %endif
 
-%if 0%{?__isa_bits} == 32
 # Reduce rustc's own debuginfo and optimizations to conserve 32-bit memory.
 # e.g. https://github.com/rust-lang/rust/issues/45854
+%global reduced_debuginfo 0
+%if 0%{?__isa_bits} == 32
+%global reduced_debuginfo 1
+%endif
+# Also on current riscv64 hardware, although future hardware will be
+# able to handle it.
+# e.g. http://fedora.riscv.rocks/koji/buildinfo?buildID=249870
+%ifarch riscv64
+%global reduced_debuginfo 1
+%endif
+
+%if 0%{?reduced_debuginfo}
 %global enable_debuginfo --debuginfo-level=0 --debuginfo-level-std=2
 %global enable_rust_opts --set rust.codegen-units-std=1
 %bcond_with rustc_pgo
@@ -124,7 +142,26 @@ Patch4:         0001-bootstrap-allow-disabling-target-self-contained.patch
 Patch5:         0002-set-an-external-library-path-for-wasm32-wasi.patch
 
 # We don't want to use the bundled library in libsqlite3-sys
-Patch6:         rustc-1.76.0-unbundle-sqlite.patch
+Patch6:         rustc-1.77.0-unbundle-sqlite.patch
+
+# Backports of fixes for LLVM 18 compatibility
+Patch7:         120529.patch
+Patch8:         121088.patch
+
+# https://github.com/rust-lang/rust/pull/123520
+Patch9:         0001-bootstrap-move-all-of-rustc-s-flags-to-rustc_cargo.patch
+
+# https://github.com/rust-lang/rust/pull/123652
+Patch10:        0001-Fix-UI-tests-with-dist-vendored-dependencies.patch
+
+# https://github.com/rust-lang/rust/pull/121179 (partial)
+Patch11:        0001-remove-stderr-per-bitwidth-from-some-tests.patch
+
+# https://github.com/rust-lang/cargo/pull/13744
+Patch12:        0001-test-don-t-compress-test-registry-crates.patch
+
+# https://github.com/rust-lang/rust-clippy/pull/12682
+Patch13:        0001-The-multiple_unsafe_ops_per_block-test-needs-asm.patch
 
 ### RHEL-specific patches below ###
 
@@ -134,7 +171,7 @@ Source101:      cargo_vendor.attr
 Source102:      cargo_vendor.prov
 
 # Disable cargo->libgit2->libssh2 on RHEL, as it's not approved for FIPS (rhbz1732949)
-Patch100:       rustc-1.76.0-disable-libssh2.patch
+Patch100:       rustc-1.77.0-disable-libssh2.patch
 
 # Get the Rust triple for any arch.
 %{lua: function rust_triple(arch)
@@ -228,10 +265,9 @@ BuildRequires:  ninja-build
 Provides:       bundled(llvm) = %{bundled_llvm_version}
 %else
 BuildRequires:  cmake >= 3.5.1
-%if %defined llvm
+%if %defined llvm_compat_version
 %global llvm_root %{_libdir}/%{llvm}
 %else
-%global llvm llvm
 %global llvm_root %{_prefix}
 %endif
 BuildRequires:  %{llvm}-devel >= %{min_llvm_version}
@@ -313,7 +349,7 @@ find '%{buildroot}%{rustlibdir}'/wasm*/lib -type f -regex '.*\\.\\(a\\|rlib\\)' 
 %endif
 
 # For profiler_builtins
-BuildRequires:  compiler-rt
+BuildRequires:  compiler-rt%{?llvm_compat_version}
 
 # This component was removed as of Rust 1.69.0.
 # https://github.com/rust-lang/rust/pull/101841
@@ -397,6 +433,12 @@ Requires:       lld
 %target_package x86_64-unknown-uefi
 Requires:       lld
 %target_description x86_64-unknown-uefi embedded
+%endif
+
+%if %target_enabled aarch64-unknown-none-softfloat
+%target_package aarch64-unknown-none-softfloat
+Requires:       lld
+%target_description aarch64-unknown-none-softfloat embedded
 %endif
 
 
@@ -570,6 +612,13 @@ rm -rf %{wasi_libc_dir}/dlmalloc/
 %patch -P5 -p1
 %endif
 %patch -P6 -p1
+%patch -P7 -p1
+%patch -P8 -p1
+%patch -P9 -p1
+%patch -P10 -p1
+%patch -P11 -p1
+%patch -P12 -p1 -d src/tools/cargo
+%patch -P13 -p1 -d src/tools/clippy
 
 %if %with disabled_libssh2
 %patch -P100 -p1
@@ -696,11 +745,16 @@ fi
 %endif
 
 # Find the compiler-rt library for the Rust profiler_builtins crate.
+%if %defined llvm_compat_version
+# clang_resource_dir is not defined for compat builds.
+%define profiler /usr/lib/clang/%{llvm_compat_version}/lib/%{_arch}-redhat-linux-gnu/libclang_rt.profile.a
+%else
 %if 0%{?clang_major_version} >= 17
 %define profiler %{clang_resource_dir}/lib/%{_arch}-redhat-linux-gnu/libclang_rt.profile.a
 %else
 # The exact profiler path is version dependent..
 %define profiler %(echo %{_libdir}/clang/??/lib/libclang_rt.profile-*.a)
+%endif
 %endif
 test -r "%{profiler}"
 
@@ -729,6 +783,7 @@ test -r "%{profiler}"
   --set build.doc-stage=2 \
   --set build.install-stage=2 \
   --set build.test-stage=2 \
+  --set build.optimized-compiler-builtins=false \
   --enable-extended \
   --tools=cargo,clippy,rls,rust-analyzer,rustfmt,src \
   --enable-vendor \
@@ -738,31 +793,32 @@ test -r "%{profiler}"
   --release-description="%{?fedora:Fedora }%{?rhel:Red Hat }%{version}-%{release}"
 
 %global __x %{__python3} ./x.py
-%global __xk %{__x} --keep-stage=0 --keep-stage=1
 
 %if %with rustc_pgo
 # Build the compiler with profile instrumentation
-PROFRAW="$PWD/build/profiles"
-PROFDATA="$PWD/build/rustc.profdata"
-mkdir -p "$PROFRAW"
-%{__x} build -j "$ncpus" sysroot --rust-profile-generate="$PROFRAW"
+%define profraw $PWD/build/profiles
+%define profdata $PWD/build/rustc.profdata
+mkdir -p "%{profraw}"
+%{__x} build -j "$ncpus" sysroot --rust-profile-generate="%{profraw}"
 # Build cargo as a workload to generate compiler profiles
-env LLVM_PROFILE_FILE="$PROFRAW/default_%%m_%%p.profraw" %{__xk} build cargo
-llvm-profdata merge -o "$PROFDATA" "$PROFRAW"
-rm -r "$PROFRAW" build/%{rust_triple}/stage2*/
-# Rebuild the compiler using the profile data
-%{__x} build -j "$ncpus" sysroot --rust-profile-use="$PROFDATA"
-%else
-# Build the compiler without PGO
-%{__x} build -j "$ncpus" sysroot
+env LLVM_PROFILE_FILE="%{profraw}/default_%%m_%%p.profraw" \
+  %{__x} --keep-stage=0 --keep-stage=1 build cargo
+# Finalize the profile data and clean up the raw files
+%{llvm_root}/bin/llvm-profdata merge -o "%{profdata}" "%{profraw}"
+rm -r "%{profraw}" build/%{rust_triple}/stage2*/
+# Redefine the macro to use that profile data from now on
+%global __x %{__x} --rust-profile-use="%{profdata}"
 %endif
 
+# Build the compiler normally (with or without PGO)
+%{__x} build -j "$ncpus" sysroot
+
 # Build everything else normally
-%{__xk} build
-%{__xk} doc
+%{__x} build
+%{__x} doc
 
 for triple in %{?all_targets} ; do
-  %{__xk} build --target=$triple std
+  %{__x} build --target=$triple std
 done
 
 %install
@@ -771,10 +827,10 @@ done
 %endif
 %{export_rust_env}
 
-DESTDIR=%{buildroot} %{__xk} install
+DESTDIR=%{buildroot} %{__x} install
 
 for triple in %{?all_targets} ; do
-  DESTDIR=%{buildroot} %{__xk} install --target=$triple std
+  DESTDIR=%{buildroot} %{__x} install --target=$triple std
 done
 
 # The rls stub doesn't have an install target, but we can just copy it.
@@ -886,17 +942,17 @@ rm -rf "$TMP_HELLO"
 
 # Bootstrap is excluded because it's not something we ship, and a lot of its
 # tests are geared toward the upstream CI environment.
-%{__xk} test --no-fail-fast --skip src/bootstrap || :
+%{__x} test --no-fail-fast --skip src/bootstrap || :
 rm -rf "./build/%{rust_triple}/test/"
 
-%{__xk} test --no-fail-fast cargo || :
+%{__x} test --no-fail-fast cargo || :
 rm -rf "./build/%{rust_triple}/stage2-tools/%{rust_triple}/cit/"
 
-%{__xk} test --no-fail-fast clippy || :
+%{__x} test --no-fail-fast clippy || :
 
-%{__xk} test --no-fail-fast rust-analyzer || :
+%{__x} test --no-fail-fast rust-analyzer || :
 
-%{__xk} test --no-fail-fast rustfmt || :
+%{__x} test --no-fail-fast rustfmt || :
 
 
 %ldconfig_scriptlets
@@ -963,6 +1019,10 @@ rm -rf "./build/%{rust_triple}/stage2-tools/%{rust_triple}/cit/"
 
 %if %target_enabled x86_64-unknown-uefi
 %target_files x86_64-unknown-uefi
+%endif
+
+%if %target_enabled aarch64-unknown-none-softfloat
+%target_files aarch64-unknown-none-softfloat
 %endif
 
 
@@ -1039,6 +1099,9 @@ rm -rf "./build/%{rust_triple}/stage2-tools/%{rust_triple}/cit/"
 
 
 %changelog
+* Fri Apr 19 2024 Josh Stone <jistone@redhat.com> - 1.77.2-1
+- Update to 1.77.2.
+
 * Tue Apr 16 2024 Josh Stone <jistone@redhat.com> - 1.76.0-1
 - Update to 1.76.0.
 - Sync rust-toolset macros to rust-packaging v25.2
