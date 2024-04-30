@@ -1,6 +1,6 @@
 Name:           rust
 Version:        1.77.2
-Release:        1%{?dist}
+Release:        2%{?dist}
 Summary:        The Rust Programming Language
 License:        (Apache-2.0 OR MIT) AND (Artistic-2.0 AND BSD-3-Clause AND ISC AND MIT AND MPL-2.0 AND Unicode-DFS-2016)
 # ^ written as: (rust itself) and (bundled libraries)
@@ -81,6 +81,15 @@ ExclusiveArch:  %{rust_arches}
 %bcond_with bundled_libgit2
 %else
 %bcond_without bundled_libgit2
+%endif
+
+# Cargo uses UPSERTs with omitted conflict targets
+%global min_sqlite3_version 3.35
+%global bundled_sqlite3_version 3.44.0
+%if 0%{?rhel} && 0%{?rhel} < 10
+%bcond_without bundled_sqlite3
+%else
+%bcond_with bundled_sqlite3
 %endif
 
 %if 0%{?rhel}
@@ -241,11 +250,14 @@ BuildRequires:  curl-devel
 BuildRequires:  pkgconfig(libcurl)
 BuildRequires:  pkgconfig(liblzma)
 BuildRequires:  pkgconfig(openssl)
-BuildRequires:  pkgconfig(sqlite3)
 BuildRequires:  pkgconfig(zlib)
 
 %if %{without bundled_libgit2}
 BuildRequires:  (pkgconfig(libgit2) >= %{min_libgit2_version} with pkgconfig(libgit2) < %{next_libgit2_version})
+%endif
+
+%if %{without bundled_sqlite3}
+BuildRequires:  pkgconfig(sqlite3) >= %{min_sqlite3_version}
 %endif
 
 %if %{without disabled_libssh2}
@@ -496,6 +508,9 @@ Summary:        Rust's package manager and build tool
 %if %with bundled_libgit2
 Provides:       bundled(libgit2) = %{bundled_libgit2_version}
 %endif
+%if %with bundled_sqlite3
+Provides:       bundled(sqlite) = %{bundled_sqlite3_version}
+%endif
 # For tests:
 BuildRequires:  git-core
 # Cargo is not much use without Rust
@@ -611,7 +626,9 @@ rm -rf %{wasi_libc_dir}/dlmalloc/
 %if %without bundled_wasi_libc
 %patch -P5 -p1
 %endif
+%if %without bundled_sqlite3
 %patch -P6 -p1
+%endif
 %patch -P7 -p1
 %patch -P8 -p1
 %patch -P9 -p1
@@ -643,7 +660,7 @@ mkdir -p src/llvm-project/libunwind/
 %clear_dir vendor/*jemalloc-sys*/jemalloc/
 %clear_dir vendor/libffi-sys*/libffi/
 %clear_dir vendor/libmimalloc-sys*/c_src/mimalloc/
-%clear_dir vendor/libsqlite3-sys*/{sqlite3,sqlcipher}/
+%clear_dir vendor/libsqlite3-sys*/sqlcipher/
 %clear_dir vendor/libssh2-sys*/libssh2/
 %clear_dir vendor/libz-sys*/src/zlib{,-ng}/
 %clear_dir vendor/lzma-sys*/xz-*/
@@ -651,6 +668,10 @@ mkdir -p src/llvm-project/libunwind/
 
 %if %without bundled_libgit2
 %clear_dir vendor/libgit2-sys*/libgit2/
+%endif
+
+%if %without bundled_sqlite3
+%clear_dir vendor/libsqlite3-sys*/sqlite3/
 %endif
 
 %if %with disabled_libssh2
@@ -701,7 +722,7 @@ end}
 %global rust_env %{shrink:
   %{?rustflags:RUSTFLAGS="%{rustflags}"}
   %{rustc_target_cpus}
-  LIBSQLITE3_SYS_USE_PKG_CONFIG=1
+  %{!?with_bundled_sqlite3:LIBSQLITE3_SYS_USE_PKG_CONFIG=1}
   %{!?with_disabled_libssh2:LIBSSH2_SYS_USE_PKG_CONFIG=1}
 }
 %global export_rust_env export %{rust_env}
@@ -1099,6 +1120,9 @@ rm -rf "./build/%{rust_triple}/stage2-tools/%{rust_triple}/cit/"
 
 
 %changelog
+* Tue Apr 30 2024 Josh Stone <jistone@redhat.com> - 1.77.2-2
+- Use bundled sqlite3 when the system version is too old.
+
 * Fri Apr 19 2024 Josh Stone <jistone@redhat.com> - 1.77.2-1
 - Update to 1.77.2.
 
