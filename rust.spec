@@ -1,6 +1,6 @@
 Name:           rust
 Version:        1.77.2
-Release:        2%{?dist}
+Release:        3%{?dist}
 Summary:        The Rust Programming Language
 License:        (Apache-2.0 OR MIT) AND (Artistic-2.0 AND BSD-3-Clause AND ISC AND MIT AND MPL-2.0 AND Unicode-DFS-2016)
 # ^ written as: (rust itself) and (bundled libraries)
@@ -171,6 +171,9 @@ Patch12:        0001-test-don-t-compress-test-registry-crates.patch
 
 # https://github.com/rust-lang/rust-clippy/pull/12682
 Patch13:        0001-The-multiple_unsafe_ops_per_block-test-needs-asm.patch
+
+# https://github.com/rust-lang/rust/pull/120676 (partial)
+Patch14:        0001-Step-all-bootstrap-cfgs-forward.patch
 
 ### RHEL-specific patches below ###
 
@@ -636,6 +639,7 @@ rm -rf %{wasi_libc_dir}/dlmalloc/
 %patch -P11 -p1
 %patch -P12 -p1 -d src/tools/cargo
 %patch -P13 -p1 -d src/tools/clippy
+%patch -P14 -p1
 
 %if %with disabled_libssh2
 %patch -P100 -p1
@@ -1120,6 +1124,9 @@ rm -rf "./build/%{rust_triple}/stage2-tools/%{rust_triple}/cit/"
 
 
 %changelog
+* Thu May 02 2024 Josh Stone <jistone@redhat.com> - 1.77.2-3
+- Fix the coverage-dump tool for tests.
+
 * Tue Apr 30 2024 Josh Stone <jistone@redhat.com> - 1.77.2-2
 - Use bundled sqlite3 when the system version is too old.
 

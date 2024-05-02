@@ -1,0 +1,26 @@
+From 9a5034a20ed8b055dc615271f9d9cf27f9e494f0 Mon Sep 17 00:00:00 2001
+From: Mark Rousskov <mark.simulacrum@gmail.com>
+Date: Mon, 5 Feb 2024 07:34:48 -0500
+Subject: [PATCH] Step all bootstrap cfgs forward
+
+This also takes care of other bootstrap-related changes.
+---
+ src/tools/coverage-dump/src/covfun.rs | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/tools/coverage-dump/src/covfun.rs b/src/tools/coverage-dump/src/covfun.rs
+index 3a5866dea3e0..49e3a6ed5838 100644
+--- a/src/tools/coverage-dump/src/covfun.rs
++++ b/src/tools/coverage-dump/src/covfun.rs
+@@ -219,7 +219,7 @@ pub(crate) fn decode(input: u32) -> Option<Self> {
+ enum MappingKind {
+     Code(CovTerm),
+     Gap(CovTerm),
+-    Expansion(u32),
++    Expansion(#[allow(dead_code)] u32),
+     Skip,
+     // Using raw identifiers here makes the dump output a little bit nicer
+     // (via the derived Debug), at the expense of making this tool's source
+-- 
+2.44.0
+
