@@ -1,6 +1,6 @@
 Name:           rust
-Version:        1.77.2
-Release:        3%{?dist}
+Version:        1.78.0
+Release:        1%{?dist}
 Summary:        The Rust Programming Language
 License:        (Apache-2.0 OR MIT) AND (Artistic-2.0 AND BSD-3-Clause AND ISC AND MIT AND MPL-2.0 AND Unicode-DFS-2016)
 # ^ written as: (rust itself) and (bundled libraries)
@@ -14,9 +14,9 @@ ExclusiveArch:  %{rust_arches}
 # To bootstrap from scratch, set the channel and date from src/stage0.json
 # e.g. 1.59.0 wants rustc: 1.58.0-2022-01-13
 # or nightly wants some beta-YYYY-MM-DD
-%global bootstrap_version 1.76.0
-%global bootstrap_channel 1.76.0
-%global bootstrap_date 2024-02-08
+%global bootstrap_version 1.77.0
+%global bootstrap_channel 1.77.0
+%global bootstrap_date 2024-03-21
 
 # Only the specified arches will use bootstrap binaries.
 # NOTE: Those binaries used to be uploaded with every new release, but that was
@@ -32,7 +32,9 @@ ExclusiveArch:  %{rust_arches}
 %if 0%{?fedora}
 %global mingw_targets i686-pc-windows-gnu x86_64-pc-windows-gnu
 %endif
-%global wasm_targets wasm32-unknown-unknown wasm32-wasi
+# NB: wasm32-wasi is being gradually replaced by wasm32-wasip1
+# https://blog.rust-lang.org/2024/04/09/updates-to-rusts-wasi-targets.html
+%global wasm_targets wasm32-unknown-unknown wasm32-wasi wasm32-wasip1
 %if 0%{?fedora} || 0%{?rhel} >= 10
 %global extra_targets x86_64-unknown-none x86_64-unknown-uefi
 %endif
@@ -65,9 +67,9 @@ ExclusiveArch:  %{rust_arches}
 %bcond_with llvm_static
 
 # We can also choose to just use Rust's bundled LLVM, in case the system LLVM
-# is insufficient.  Rust currently requires LLVM 15.0+.
-%global min_llvm_version 15.0.0
-%global bundled_llvm_version 17.0.6
+# is insufficient.  Rust currently requires LLVM 16.0+.
+%global min_llvm_version 16.0.0
+%global bundled_llvm_version 18.1.2
 #global llvm_compat_version 17
 %global llvm llvm%{?llvm_compat_version}
 %bcond_with bundled_llvm
@@ -85,7 +87,7 @@ ExclusiveArch:  %{rust_arches}
 
 # Cargo uses UPSERTs with omitted conflict targets
 %global min_sqlite3_version 3.35
-%global bundled_sqlite3_version 3.44.0
+%global bundled_sqlite3_version 3.45.0
 %if 0%{?rhel} && 0%{?rhel} < 10
 %bcond_without bundled_sqlite3
 %else
@@ -151,29 +153,32 @@ Patch4:         0001-bootstrap-allow-disabling-target-self-contained.patch
 Patch5:         0002-set-an-external-library-path-for-wasm32-wasi.patch
 
 # We don't want to use the bundled library in libsqlite3-sys
-Patch6:         rustc-1.77.0-unbundle-sqlite.patch
-
-# Backports of fixes for LLVM 18 compatibility
-Patch7:         120529.patch
-Patch8:         121088.patch
+Patch6:         rustc-1.78.0-unbundle-sqlite.patch
 
 # https://github.com/rust-lang/rust/pull/123520
-Patch9:         0001-bootstrap-move-all-of-rustc-s-flags-to-rustc_cargo.patch
+Patch7:         0001-bootstrap-move-all-of-rustc-s-flags-to-rustc_cargo.patch
 
 # https://github.com/rust-lang/rust/pull/123652
-Patch10:        0001-Fix-UI-tests-with-dist-vendored-dependencies.patch
+Patch8:         0001-Fix-UI-tests-with-dist-vendored-dependencies.patch
 
-# https://github.com/rust-lang/rust/pull/121179 (partial)
-Patch11:        0001-remove-stderr-per-bitwidth-from-some-tests.patch
+# https://github.com/rust-lang/rust/pull/122270
+Patch9:         0001-fix-long-linker-command-lines-failure-caused-by-rust.patch
+
+# https://github.com/rust-lang/rust/pull/123763
+Patch10:        0001-Set-the-host-library-path-in-run-make-v2.patch
+Patch11:        0002-Use-env-split_paths-join_paths-in-runtest.patch
+
+# https://github.com/rust-lang/rust/pull/124597
+Patch12:        0001-Use-an-explicit-x86-64-cpu-in-tests-that-are-sensiti.patch
 
 # https://github.com/rust-lang/cargo/pull/13744
-Patch12:        0001-test-don-t-compress-test-registry-crates.patch
+Patch20:        0001-test-don-t-compress-test-registry-crates.patch
+
+# https://github.com/rust-lang/cargo/pull/13789
+Patch21:        0001-Fix-2-tests-for-offline-execution.patch
 
 # https://github.com/rust-lang/rust-clippy/pull/12682
-Patch13:        0001-The-multiple_unsafe_ops_per_block-test-needs-asm.patch
-
-# https://github.com/rust-lang/rust/pull/120676 (partial)
-Patch14:        0001-Step-all-bootstrap-cfgs-forward.patch
+Patch30:        0001-The-multiple_unsafe_ops_per_block-test-needs-asm.patch
 
 ### RHEL-specific patches below ###
 
@@ -183,7 +188,7 @@ Source101:      cargo_vendor.attr
 Source102:      cargo_vendor.prov
 
 # Disable cargo->libgit2->libssh2 on RHEL, as it's not approved for FIPS (rhbz1732949)
-Patch100:       rustc-1.77.0-disable-libssh2.patch
+Patch100:       rustc-1.78.0-disable-libssh2.patch
 
 # Get the Rust triple for any arch.
 %{lua: function rust_triple(arch)
@@ -327,6 +332,14 @@ Requires:       /usr/bin/cc
 # support custom-derive plugins like #[proc_macro_derive(Foo)].
 %global _find_debuginfo_opts --keep-section .rustc
 
+# The standard library rlibs are essentially static archives, but we don't want
+# to strip them because that impairs the debuginfo of all Rust programs.
+# It also had a tendency to break the cross-compiled libraries:
+# - wasm targets lost the archive index, which we were repairing with llvm-ranlib
+# - uefi targets couldn't link builtins like memcpy, possibly due to lost COMDAT flags
+%global __brp_strip_static_archive %{nil}
+%global __brp_strip_lto %{nil}
+
 %if %{without bundled_llvm}
 %if "%{llvm_root}" == "%{_prefix}" || 0%{?scl:1}
 %global llvm_has_filecheck 1
@@ -356,11 +369,6 @@ BuildRequires:  clang
 BuildRequires:  wasi-libc-static
 %endif
 BuildRequires:  lld
-# brp-strip-static-archive breaks the archive index for wasm
-%global __os_install_post \
-%__os_install_post \
-find '%{buildroot}%{rustlibdir}'/wasm*/lib -type f -regex '.*\\.\\(a\\|rlib\\)' -print -exec '%{llvm_root}/bin/llvm-ranlib' '{}' ';' \
-%{nil}
 %endif
 
 # For profiler_builtins
@@ -436,6 +444,18 @@ Requires:       wasi-libc-static
 %endif
 BuildArch:      noarch
 %target_description wasm32-wasi WebAssembly
+%endif
+
+%if %target_enabled wasm32-wasip1
+%target_package wasm32-wasip1
+Requires:       lld >= 8.0
+%if %with bundled_wasi_libc
+Provides:       bundled(wasi-libc)
+%else
+Requires:       wasi-libc-static
+%endif
+BuildArch:      noarch
+%target_description wasm32-wasip1 WebAssembly
 %endif
 
 %if %target_enabled x86_64-unknown-none
@@ -637,9 +657,12 @@ rm -rf %{wasi_libc_dir}/dlmalloc/
 %patch -P9 -p1
 %patch -P10 -p1
 %patch -P11 -p1
-%patch -P12 -p1 -d src/tools/cargo
-%patch -P13 -p1 -d src/tools/clippy
-%patch -P14 -p1
+%patch -P12 -p1
+
+%patch -P20 -p1 -d src/tools/cargo
+%patch -P21 -p1 -d src/tools/cargo
+
+%patch -P30 -p1 -d src/tools/clippy
 
 %if %with disabled_libssh2
 %patch -P100 -p1
@@ -760,11 +783,16 @@ fi
 %if %defined wasm_targets
 %if %with bundled_wasi_libc
 %make_build --quiet -C %{wasi_libc_dir} MALLOC_IMPL=emmalloc CC=clang AR=llvm-ar NM=llvm-nm
-%define wasm_target_config --set target.wasm32-wasi.wasi-root=%{wasi_libc_dir}/sysroot
+%define wasm_target_config %{shrink:
+  --set target.wasm32-wasi.wasi-root=%{wasi_libc_dir}/sysroot
+  --set target.wasm32-wasip1.wasi-root=%{wasi_libc_dir}/sysroot
+}
 %else
 %define wasm_target_config %{shrink:
   --set target.wasm32-wasi.wasi-root=%{_prefix}/wasm32-wasi
   --set target.wasm32-wasi.self-contained=false
+  --set target.wasm32-wasip1.wasi-root=%{_prefix}/wasm32-wasi
+  --set target.wasm32-wasip1.self-contained=false
 }
 %endif
 %endif
@@ -784,6 +812,7 @@ fi
 test -r "%{profiler}"
 
 %configure --disable-option-checking \
+  --docdir=%{_pkgdocdir} \
   --libdir=%{common_libdir} \
   --build=%{rust_triple} --host=%{rust_triple} --target=%{rust_triple} \
   --set target.%{rust_triple}.linker=%{__cc} \
@@ -813,7 +842,6 @@ test -r "%{profiler}"
   --tools=cargo,clippy,rls,rust-analyzer,rustfmt,src \
   --enable-vendor \
   --enable-verbose-tests \
-  --dist-compression-formats=gz \
   --release-channel=%{channel} \
   --release-description="%{?fedora:Fedora }%{?rhel:Red Hat }%{version}-%{release}"
 
@@ -901,21 +929,18 @@ find %{buildroot}%{rustlibdir} -type f -name '*.orig' -exec rm -v '{}' '+'
 # We don't actually need to ship any of those python scripts in rust-src anyway.
 find %{buildroot}%{rustlibdir}/src -type f -name '*.py' -exec rm -v '{}' '+'
 
-# FIXME: __os_install_post will strip the rlibs
-# -- should we find a way to preserve debuginfo?
-
 # Remove unwanted documentation files (we already package them)
-rm -f %{buildroot}%{_docdir}/%{name}/README.md
-rm -f %{buildroot}%{_docdir}/%{name}/COPYRIGHT
-rm -f %{buildroot}%{_docdir}/%{name}/LICENSE
-rm -f %{buildroot}%{_docdir}/%{name}/LICENSE-APACHE
-rm -f %{buildroot}%{_docdir}/%{name}/LICENSE-MIT
-rm -f %{buildroot}%{_docdir}/%{name}/LICENSE-THIRD-PARTY
-rm -f %{buildroot}%{_docdir}/%{name}/*.old
+rm -f %{buildroot}%{_pkgdocdir}/README.md
+rm -f %{buildroot}%{_pkgdocdir}/COPYRIGHT
+rm -f %{buildroot}%{_pkgdocdir}/LICENSE
+rm -f %{buildroot}%{_pkgdocdir}/LICENSE-APACHE
+rm -f %{buildroot}%{_pkgdocdir}/LICENSE-MIT
+rm -f %{buildroot}%{_pkgdocdir}/LICENSE-THIRD-PARTY
+rm -f %{buildroot}%{_pkgdocdir}/*.old
 
 # Sanitize the HTML documentation
-find %{buildroot}%{_docdir}/%{name}/html -empty -delete
-find %{buildroot}%{_docdir}/%{name}/html -type f -exec chmod -x '{}' '+'
+find %{buildroot}%{_pkgdocdir}/html -empty -delete
+find %{buildroot}%{_pkgdocdir}/html -type f -exec chmod -x '{}' '+'
 
 # Create the path for crate-devel packages
 mkdir -p %{buildroot}%{_datadir}/cargo/registry
@@ -970,7 +995,11 @@ rm -rf "$TMP_HELLO"
 %{__x} test --no-fail-fast --skip src/bootstrap || :
 rm -rf "./build/%{rust_triple}/test/"
 
-%{__x} test --no-fail-fast cargo || :
+%ifarch aarch64
+# https://github.com/rust-lang/rust/issues/123733
+%define cargo_test_skip --test-args "--skip panic_abort_doc_tests"
+%endif
+%{__x} test --no-fail-fast cargo %{?cargo_test_skip} || :
 rm -rf "./build/%{rust_triple}/stage2-tools/%{rust_triple}/cit/"
 
 %{__x} test --no-fail-fast clippy || :
@@ -1038,6 +1067,15 @@ rm -rf "./build/%{rust_triple}/stage2-tools/%{rust_triple}/cit/"
 %endif
 %endif
 
+%if %target_enabled wasm32-wasip1
+%target_files wasm32-wasip1
+%if %with bundled_wasi_libc
+%dir %{rustlibdir}/wasm32-wasip1/lib/self-contained
+%{rustlibdir}/wasm32-wasip1/lib/self-contained/crt*.o
+%{rustlibdir}/wasm32-wasip1/lib/self-contained/libc.a
+%endif
+%endif
+
 %if %target_enabled x86_64-unknown-none
 %target_files x86_64-unknown-none
 %endif
@@ -1069,9 +1107,9 @@ rm -rf "./build/%{rust_triple}/stage2-tools/%{rust_triple}/cit/"
 
 
 %files doc
-%docdir %{_docdir}/%{name}
-%dir %{_docdir}/%{name}
-%{_docdir}/%{name}/html
+%docdir %{_pkgdocdir}
+%dir %{_pkgdocdir}
+%{_pkgdocdir}/html
 # former cargo-doc
 %docdir %{_docdir}/cargo
 %dir %{_docdir}/cargo
@@ -1124,6 +1162,9 @@ rm -rf "./build/%{rust_triple}/stage2-tools/%{rust_triple}/cit/"
 
 
 %changelog
+* Tue Jun 18 2024 Nikita Popov <npopov@redhat.com> - 1.78.0-1
+- Update to 1.78.0
+
 * Thu May 02 2024 Josh Stone <jistone@redhat.com> - 1.77.2-3
 - Fix the coverage-dump tool for tests.
 
