@@ -1,5 +1,5 @@
 Name:           rust
-Version:        1.78.0
+Version:        1.79.0
 Release:        1%{?dist}
 Summary:        The Rust Programming Language
 License:        (Apache-2.0 OR MIT) AND (Artistic-2.0 AND BSD-3-Clause AND ISC AND MIT AND MPL-2.0 AND Unicode-DFS-2016)
@@ -14,9 +14,9 @@ ExclusiveArch:  %{rust_arches}
 # To bootstrap from scratch, set the channel and date from src/stage0.json
 # e.g. 1.59.0 wants rustc: 1.58.0-2022-01-13
 # or nightly wants some beta-YYYY-MM-DD
-%global bootstrap_version 1.77.0
-%global bootstrap_channel 1.77.0
-%global bootstrap_date 2024-03-21
+%global bootstrap_version 1.78.0
+%global bootstrap_channel 1.78.0
+%global bootstrap_date 2024-05-02
 
 # Only the specified arches will use bootstrap binaries.
 # NOTE: Those binaries used to be uploaded with every new release, but that was
@@ -52,8 +52,7 @@ ExclusiveArch:  %{rust_arches}
 # We need CRT files for *-wasi targets, at least as new as the commit in
 # src/ci/docker/host-x86_64/dist-various-2/build-wasi-toolchain.sh
 %global wasi_libc_url https://github.com/WebAssembly/wasi-libc
-#global wasi_libc_ref wasi-sdk-21
-%global wasi_libc_ref 03b228e46bb02fcc5927253e1b8ad715072b1ae4
+%global wasi_libc_ref wasi-sdk-22
 %global wasi_libc_name wasi-libc-%{wasi_libc_ref}
 %global wasi_libc_source %{wasi_libc_url}/archive/%{wasi_libc_ref}/%{wasi_libc_name}.tar.gz
 %global wasi_libc_dir %{_builddir}/%{wasi_libc_name}
@@ -67,9 +66,9 @@ ExclusiveArch:  %{rust_arches}
 %bcond_with llvm_static
 
 # We can also choose to just use Rust's bundled LLVM, in case the system LLVM
-# is insufficient.  Rust currently requires LLVM 16.0+.
-%global min_llvm_version 16.0.0
-%global bundled_llvm_version 18.1.2
+# is insufficient.  Rust currently requires LLVM 17.0+.
+%global min_llvm_version 17.0.0
+%global bundled_llvm_version 18.1.7
 #global llvm_compat_version 17
 %global llvm llvm%{?llvm_compat_version}
 %bcond_with bundled_llvm
@@ -153,32 +152,13 @@ Patch4:         0001-bootstrap-allow-disabling-target-self-contained.patch
 Patch5:         0002-set-an-external-library-path-for-wasm32-wasi.patch
 
 # We don't want to use the bundled library in libsqlite3-sys
-Patch6:         rustc-1.78.0-unbundle-sqlite.patch
-
-# https://github.com/rust-lang/rust/pull/123520
-Patch7:         0001-bootstrap-move-all-of-rustc-s-flags-to-rustc_cargo.patch
-
-# https://github.com/rust-lang/rust/pull/123652
-Patch8:         0001-Fix-UI-tests-with-dist-vendored-dependencies.patch
-
-# https://github.com/rust-lang/rust/pull/122270
-Patch9:         0001-fix-long-linker-command-lines-failure-caused-by-rust.patch
-
-# https://github.com/rust-lang/rust/pull/123763
-Patch10:        0001-Set-the-host-library-path-in-run-make-v2.patch
-Patch11:        0002-Use-env-split_paths-join_paths-in-runtest.patch
+Patch6:         rustc-1.79.0-unbundle-sqlite.patch
 
 # https://github.com/rust-lang/rust/pull/124597
-Patch12:        0001-Use-an-explicit-x86-64-cpu-in-tests-that-are-sensiti.patch
+Patch7:         0001-Use-an-explicit-x86-64-cpu-in-tests-that-are-sensiti.patch
 
-# https://github.com/rust-lang/cargo/pull/13744
-Patch20:        0001-test-don-t-compress-test-registry-crates.patch
-
-# https://github.com/rust-lang/cargo/pull/13789
-Patch21:        0001-Fix-2-tests-for-offline-execution.patch
-
-# https://github.com/rust-lang/rust-clippy/pull/12682
-Patch30:        0001-The-multiple_unsafe_ops_per_block-test-needs-asm.patch
+# Fix codegen test failure on big endian: https://github.com/rust-lang/rust/pull/126263
+Patch8:         0001-Make-issue-122805.rs-big-endian-compatible.patch
 
 ### RHEL-specific patches below ###
 
@@ -188,7 +168,7 @@ Source101:      cargo_vendor.attr
 Source102:      cargo_vendor.prov
 
 # Disable cargo->libgit2->libssh2 on RHEL, as it's not approved for FIPS (rhbz1732949)
-Patch100:       rustc-1.78.0-disable-libssh2.patch
+Patch100:       rustc-1.79.0-disable-libssh2.patch
 
 # Get the Rust triple for any arch.
 %{lua: function rust_triple(arch)
@@ -302,9 +282,16 @@ BuildRequires:  procps-ng
 
 # debuginfo-gdb tests need gdb
 BuildRequires:  gdb
+# Work around https://bugzilla.redhat.com/show_bug.cgi?id=2275274:
+# gdb currently prints a "Unable to load 'rpm' module.  Please install the python3-rpm package."
+# message that breaks version detection.
+BuildRequires:  python3-rpm
 
 # For src/test/run-make/static-pie
 BuildRequires:  glibc-static
+
+# For tests/run-make/pgo-branch-weights
+BuildRequires:  binutils-gold
 
 # Virtual provides for folks who attempt "dnf install rustc"
 Provides:       rustc = %{version}-%{release}
@@ -654,15 +641,6 @@ rm -rf %{wasi_libc_dir}/dlmalloc/
 %endif
 %patch -P7 -p1
 %patch -P8 -p1
-%patch -P9 -p1
-%patch -P10 -p1
-%patch -P11 -p1
-%patch -P12 -p1
-
-%patch -P20 -p1 -d src/tools/cargo
-%patch -P21 -p1 -d src/tools/cargo
-
-%patch -P30 -p1 -d src/tools/clippy
 
 %if %with disabled_libssh2
 %patch -P100 -p1
@@ -782,7 +760,9 @@ fi
 
 %if %defined wasm_targets
 %if %with bundled_wasi_libc
-%make_build --quiet -C %{wasi_libc_dir} MALLOC_IMPL=emmalloc CC=clang AR=llvm-ar NM=llvm-nm
+%define wasi_libc_flags MALLOC_IMPL=emmalloc CC=clang AR=llvm-ar NM=llvm-nm
+%make_build --quiet -C %{wasi_libc_dir} %{wasi_libc_flags} TARGET_TRIPLE=wasm32-wasi
+%make_build --quiet -C %{wasi_libc_dir} %{wasi_libc_flags} TARGET_TRIPLE=wasm32-wasip1
 %define wasm_target_config %{shrink:
   --set target.wasm32-wasi.wasi-root=%{wasi_libc_dir}/sysroot
   --set target.wasm32-wasip1.wasi-root=%{wasi_libc_dir}/sysroot
@@ -1162,6 +1142,9 @@ rm -rf "./build/%{rust_triple}/stage2-tools/%{rust_triple}/cit/"
 
 
 %changelog
+* Wed Jul 03 2024 Nikita Popov <npopov@redhat.com> - 1.79.0-1
+- Update to 1.79.0
+
 * Tue Jun 18 2024 Nikita Popov <npopov@redhat.com> - 1.78.0-1
 - Update to 1.78.0
 
