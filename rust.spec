@@ -1,6 +1,6 @@
 Name:           rust
 Version:        1.79.0
-Release:        1%{?dist}
+Release:        2%{?dist}
 Summary:        The Rust Programming Language
 License:        (Apache-2.0 OR MIT) AND (Artistic-2.0 AND BSD-3-Clause AND ISC AND MIT AND MPL-2.0 AND Unicode-DFS-2016)
 # ^ written as: (rust itself) and (bundled libraries)
@@ -159,6 +159,9 @@ Patch7:         0001-Use-an-explicit-x86-64-cpu-in-tests-that-are-sensiti.patch
 
 # Fix codegen test failure on big endian: https://github.com/rust-lang/rust/pull/126263
 Patch8:         0001-Make-issue-122805.rs-big-endian-compatible.patch
+
+# https://github.com/rust-lang/rust/pull/128271
+Patch9:         0001-Disable-jump-threading-of-float-equality.patch
 
 ### RHEL-specific patches below ###
 
@@ -641,6 +644,7 @@ rm -rf %{wasi_libc_dir}/dlmalloc/
 %endif
 %patch -P7 -p1
 %patch -P8 -p1
+%patch -P9 -p1
 
 %if %with disabled_libssh2
 %patch -P100 -p1
@@ -1142,6 +1146,9 @@ rm -rf "./build/%{rust_triple}/stage2-tools/%{rust_triple}/cit/"
 
 
 %changelog
+* Tue Aug 13 2024 Josh Stone <jistone@redhat.com> - 1.79.0-2
+- Disable jump threading of float equality
+
 * Wed Jul 03 2024 Nikita Popov <npopov@redhat.com> - 1.79.0-1
 - Update to 1.79.0
 
