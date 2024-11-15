@@ -1,6 +1,6 @@
 Name:           rust
 Version:        1.79.0
-Release:        2%{?dist}
+Release:        3%{?dist}
 Summary:        The Rust Programming Language
 License:        (Apache-2.0 OR MIT) AND (Artistic-2.0 AND BSD-3-Clause AND ISC AND MIT AND MPL-2.0 AND Unicode-DFS-2016)
 # ^ written as: (rust itself) and (bundled libraries)
@@ -61,6 +61,9 @@ ExclusiveArch:  %{rust_arches}
 %else
 %bcond_without bundled_wasi_libc
 %endif
+
+# Needed to save disk space on copr, limited to 14GB
+%bcond_without check
 
 # Using llvm-static may be helpful as an opt-in, e.g. to aid LLVM rebases.
 %bcond_with llvm_static
@@ -951,6 +954,7 @@ rm -f %{buildroot}%{rustlibdir}/%{rust_triple}/bin/rust-ll*
 %endif
 %{export_rust_env}
 
+%if %{with check}
 # Sanity-check the installed binaries, debuginfo-stripped and all.
 TMP_HELLO=$(mktemp -d)
 (
@@ -992,6 +996,7 @@ rm -rf "./build/%{rust_triple}/stage2-tools/%{rust_triple}/cit/"
 
 %{__x} test --no-fail-fast rustfmt || :
 
+%endif
 
 %ldconfig_scriptlets
 
@@ -1146,6 +1151,9 @@ rm -rf "./build/%{rust_triple}/stage2-tools/%{rust_triple}/cit/"
 
 
 %changelog
+* Fri Nov 15 2024 Mike DePaulo <mikedep333@gmail.com> - 1.79.0-3
+- Add bcond_without check for low-disk-space copr builds
+
 * Tue Aug 13 2024 Josh Stone <jistone@redhat.com> - 1.79.0-2
 - Disable jump threading of float equality
 
