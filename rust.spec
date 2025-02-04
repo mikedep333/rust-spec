@@ -816,6 +816,8 @@ test -r "%{profiler}"
   %{!?with_bundled_llvm: --llvm-root=%{llvm_root} \
     %{!?llvm_has_filecheck: --disable-codegen-tests} \
     %{!?with_llvm_static: --enable-llvm-link-shared } } \
+    %{?with_bundled_llvm: --set llvm.link-jobs=1 } \
+    %{?with_llvm_static: --set llvm.link-jobs=1 } \
   --disable-llvm-static-stdcpp \
   --disable-rpath \
   %{enable_debuginfo} \
@@ -1151,6 +1153,9 @@ rm -rf "./build/%{rust_triple}/stage2-tools/%{rust_triple}/cit/"
 
 
 %changelog
+* Tue Feb 04 2025 Mike DePaulo <mikedep333@gmail.com> - 1.79.0-4
+- Add fix for excessive memory usage during build
+
 * Fri Nov 15 2024 Mike DePaulo <mikedep333@gmail.com> - 1.79.0-3
 - Add bcond_without check for low-disk-space copr builds
 
