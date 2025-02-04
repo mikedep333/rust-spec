@@ -1,6 +1,6 @@
 Name:           rust
 Version:        1.79.0
-Release:        4%{?dist}
+Release:        5%{?dist}
 Summary:        The Rust Programming Language
 License:        (Apache-2.0 OR MIT) AND (Artistic-2.0 AND BSD-3-Clause AND ISC AND MIT AND MPL-2.0 AND Unicode-DFS-2016)
 # ^ written as: (rust itself) and (bundled libraries)
@@ -66,7 +66,7 @@ ExclusiveArch:  %{rust_arches}
 %bcond_without check
 
 # Using llvm-static may be helpful as an opt-in, e.g. to aid LLVM rebases.
-%bcond_with llvm_static
+%bcond_without llvm_static
 
 # We can also choose to just use Rust's bundled LLVM, in case the system LLVM
 # is insufficient.  Rust currently requires LLVM 17.0+.
@@ -1153,6 +1153,9 @@ rm -rf "./build/%{rust_triple}/stage2-tools/%{rust_triple}/cit/"
 
 
 %changelog
+* Tue Feb 04 2025 Mike DePaulo <mikedep333@gmail.com> - 1.79.0-5
+- Build with llvm_static
+
 * Tue Feb 04 2025 Mike DePaulo <mikedep333@gmail.com> - 1.79.0-4
 - Add fix for excessive memory usage during build
 
